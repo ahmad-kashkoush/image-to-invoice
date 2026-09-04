@@ -38,6 +38,7 @@ stub to real, not just the code):
    Status / Context / Decisions / Consequences).
 4. Move the section from "Next" to "Done" in `TODo.md`, listing the files
    and tests touched, and renumber the remaining "Next" list.
+5. Suggest bulk commit message following conventional commits pattern.
 
 ## Fail-closed, not best-effort
 
