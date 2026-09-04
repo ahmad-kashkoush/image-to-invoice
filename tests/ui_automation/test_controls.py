@@ -33,7 +33,7 @@ class FakeParent:
         self._responses = responses
         self.calls = 0
 
-    def children(self, control_type=None, title=None):
+    def children(self, control_type=None, title=None, auto_id=None):
         index = min(self.calls, len(self._responses) - 1)
         self.calls += 1
         return self._responses[index]
@@ -63,6 +63,33 @@ def test_find_all_controls_omits_title_when_name_is_none() -> None:
     assert seen == {"control_type": "Button"}
 
 
+def test_find_all_controls_passes_auto_id_through() -> None:
+    # Many Fakturama controls (search boxes, name fields) have no
+    # accessible name and are only addressable by auto_id - see
+    # controls.py's module docstring.
+    seen: dict = {}
+
+    class RecordingParent:
+        def children(self, **kwargs):
+            seen.update(kwargs)
+            return []
+
+    find_all_controls(RecordingParent(), "Edit", auto_id="67910")
+    assert seen == {"control_type": "Edit", "auto_id": "67910"}
+
+
+def test_find_all_controls_omits_auto_id_when_none() -> None:
+    seen: dict = {}
+
+    class RecordingParent:
+        def children(self, **kwargs):
+            seen.update(kwargs)
+            return []
+
+    find_all_controls(RecordingParent(), "Edit", "Search:")
+    assert seen == {"control_type": "Edit", "title": "Search:"}
+
+
 def test_find_control_returns_single_immediate_match() -> None:
     parent = FakeParent([[FakeElement("Save")]])
     result = find_control(parent, "Button", "Save", timeout_seconds=0.2)
@@ -81,6 +108,18 @@ def test_find_control_raises_not_found_after_timeout() -> None:
     parent = FakeParent([[]])
     with pytest.raises(ControlNotFoundError):
         find_control(parent, "Button", "Save", timeout_seconds=0.3)
+
+
+def test_find_control_passes_auto_id_through_to_children() -> None:
+    seen: dict = {}
+
+    class RecordingParent:
+        def children(self, **kwargs):
+            seen.update(kwargs)
+            return [FakeElement("")]
+
+    find_control(RecordingParent(), "Edit", auto_id="67910", timeout_seconds=0.2)
+    assert seen == {"control_type": "Edit", "auto_id": "67910"}
 
 
 def test_find_control_raises_ambiguous_immediately_without_waiting_out_timeout() -> None:

@@ -74,10 +74,19 @@ themselves.
 - `app.py` and `spikes/uia_probe.py` have **no unit tests** - they cannot
   even be imported outside Windows. They are implemented directly from
   pywinauto's documented API (`Application(backend="uia").connect(...)`,
-  `.top_window()`, `.window(...)`, `.print_control_identifiers()`) but are
-  unverified by me until run on the Windows 11 ARM VM against a real
-  Fakturama window, per README's suggested build order (the UIA spike is
-  step 1, a go/no-go gate, specifically because of this).
+  `.top_window()`, `.window(...)`, `.print_control_identifiers()`).
+  **Verified on the Windows 11 ARM VM (2026-09-04):** `spikes/uia_probe.py`
+  against a running Fakturama window returned a rich, fully named control
+  tree on the first run (see `Archieve/uia-output.txt`) - no Java Access
+  Bridge fallback needed. This was README's step-1 go/no-go gate; it passed,
+  so `app.py`'s use of the same `Application(backend="uia")` API is no
+  longer a live risk.
+- `spikes/uia_probe_editor.py` was added after that run: it takes a keyword
+  argument and prints only the descendant subtrees matching it (falling
+  back to the full tree if nothing matches), since the main window dump
+  doesn't show the Order/Invoice editors or the entity search dialogs -
+  those only appear in the tree once opened. Same import boundary as
+  `uia_probe.py`: `from pywinauto import Application`, no unit tests.
 - Any future module that needs to talk to a live pywinauto object should
   follow the same pattern: accept it as a parameter typed `Any` rather than
   importing `pywinauto` itself, unless it is specifically the connection
