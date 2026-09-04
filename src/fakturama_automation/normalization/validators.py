@@ -1,0 +1,115 @@
+"""Validation checks run during fakturama_automation.normalization.
+
+Section 2 (normalization). These checks decide whether a normalized order
+is safe to hand to the fakturama_automation.orchestrator. Anything that
+fails stops the flow before automation starts (normalizer.py raises
+ManualReviewRequired), rather than warning and continuing.
+"""
+
+from __future__ import annotations
+
+from decimal import ROUND_HALF_UP, Decimal
+
+from fakturama_automation.extraction.models import RawOrder
+from fakturama_automation.extraction.vision_extractor import (
+    ADDRESS_CONFIDENCE_FIELDS,
+    LINE_ITEM_CONFIDENCE_FIELDS,
+    ORDER_LEVEL_CONFIDENCE_FIELDS,
+)
+from fakturama_automation.normalization.config import MONEY_QUANTIZE
+from fakturama_automation.normalization.models import NormalizedLineItem, NormalizedOrder
+
+_HUNDRED = Decimal(100)
+
+
+def recompute_line_total(item: NormalizedLineItem) -> Decimal:
+    """Recompute a line's net total per Task rule 3.16: quantity x unit net
+    price x (1 - discount / 100). discount is a percentage; VAT is not part
+    of the net line total. Rounded to 2 decimal places, half-up.
+
+    This is the single source of the formula: both normalizer.py (to fill
+    NormalizedLineItem.recomputed_total) and check_line_total below call it,
+    so the two never drift apart.
+    """
+    total = item.quantity * item.unit_net_price * (Decimal(1) - item.discount / _HUNDRED)
+    return total.quantize(MONEY_QUANTIZE, rounding=ROUND_HALF_UP)
+
+
+def check_line_total(item: NormalizedLineItem, tolerance: Decimal) -> bool:
+    """Recompute a line's total from quantity, unit price, and discount and
+    compare it to the source line total within tolerance.
+
+    A mismatch beyond tolerance means the extracted total does not agree
+    with the extracted quantity/price/discount, signaling a misread field
+    that must not reach automation silently.
+    """
+    return abs(recompute_line_total(item) - item.source_line_total) <= tolerance
+
+
+def check_required_fields(order: NormalizedOrder) -> bool:
+    """Confirm required fields are present: debtor name and at least one
+    line item, each with a non-empty SKU (needed for exact-match product
+    resolution) and a positive quantity.
+    """
+    if not order.debtor_company_name:
+        return False
+    if not order.line_items:
+        return False
+    return all(item.sku and item.quantity > 0 for item in order.line_items)
+
+
+def _extracted_confidence_shortfall(
+    raw_values: dict[str, object | None],
+    confidence: dict[str, float],
+    field_names: list[str],
+    threshold: float,
+) -> str | None:
+    """Return the name of the first field that was actually extracted (a
+    non-None/non-empty raw value) but whose confidence is below threshold,
+    or None if every extracted field clears it.
+
+    A field the model never extracted (raw value is None/empty) is a
+    completeness concern for check_required_fields, not a confidence
+    failure here. A missing confidence key for an extracted field is
+    treated as 0.0 (fail closed), per extraction/models.py's confidence
+    keying convention.
+    """
+    for name in field_names:
+        value = raw_values.get(name)
+        if value is None or value == "":
+            continue
+        if confidence.get(name, 0.0) < threshold:
+            return name
+    return None
+
+
+def check_confidence(raw_order: RawOrder, threshold: float) -> bool:
+    """Confirm no field relevant to automation is below the confidence
+    threshold after the OCR fallback pass.
+
+    Confidence lives on the raw models (RawOrder/RawAddress/RawLineItem),
+    not on NormalizedOrder, so this reads raw_order directly rather than
+    the normalized result (see extraction/models.py's confidence keying
+    convention docstring).
+    """
+    order_values = {name: getattr(raw_order, name) for name in ORDER_LEVEL_CONFIDENCE_FIELDS}
+    if _extracted_confidence_shortfall(
+        order_values, raw_order.confidence, ORDER_LEVEL_CONFIDENCE_FIELDS, threshold
+    ):
+        return False
+
+    for address in (raw_order.billing_address, raw_order.delivery_address):
+        address_values = {name: getattr(address, name) for name in ADDRESS_CONFIDENCE_FIELDS}
+        if _extracted_confidence_shortfall(
+            address_values, address.confidence, ADDRESS_CONFIDENCE_FIELDS, threshold
+        ):
+            return False
+
+    for item in raw_order.line_items:
+        item_values = {name: getattr(item, name) for name in LINE_ITEM_CONFIDENCE_FIELDS}
+        if _extracted_confidence_shortfall(
+            item_values, item.confidence, LINE_ITEM_CONFIDENCE_FIELDS, threshold
+        ):
+            return False
+
+    return True
