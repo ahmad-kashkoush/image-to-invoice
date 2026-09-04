@@ -52,6 +52,15 @@ OCR is kept available as a secondary pass for fields the LLM reads with low conf
 
 Fields are converted into the types Fakturama's UI expects (dates to a canonical format, monetary values as rounded numbers, percentages as plain numbers, free text trimmed of extraction artifacts) before automation opens a New Order. Each line's extracted total is then recomputed from quantity, unit price, and discount and compared against the source total, since a mismatch signals a misread field; required fields such as the Debtor name or at least one item row are checked for presence. Any field that fails this recomputation, is missing, or carries a low confidence score stops the flow before it reaches Fakturama's UI and is surfaced for manual review, since an incorrect Debtor, price, or VAT rate at this stage would otherwise propagate into a saved financial record.
 
+**Implementation notes (`normalization/`):**
+- The recomputation formula is `quantity x unit_net_price x (1 - discount / 100)`: discount is a plain percentage and VAT is excluded from the net line total, matching how Fakturama itself computes a line's net price. This single formula (`validators.recompute_line_total`) is shared by the normalizer, which fills in each line's `recomputed_total`, and by the check that compares it against the source total.
+- Dates parse ISO (`YYYY-MM-DD`) first, with an unambiguous day-first fallback (`DD.MM.YYYY`) for the German-locale source documents this system targets; anything else (including an ambiguous slash date) fails closed rather than being guessed.
+- Monetary and percentage fields tolerate both dot-decimal and European comma-decimal input, with currency symbols and thousands separators stripped, then round to 2 decimal places (half-up) for money.
+- Confidence data lives on the raw extraction models (keyed by field name, per `extraction/models.py`), not on the normalized order, so the confidence check reads the `RawOrder` directly. It only evaluates fields the vision pass actually extracted (a non-empty raw value); a field the source document never had (e.g. a blank delivery address) is a completeness question for the required-fields check, not a confidence failure. A missing confidence key for an extracted field is treated as 0.0 (fail closed), never as high confidence.
+- Every parse and validation failure on an order is collected and raised together as one `ManualReviewRequired`, rather than stopping at the first problem, so manual review sees the complete picture for that order in one pass.
+
+See `Doc/adr/0001-normalization-and-validation.md` for the reasoning behind these choices.
+
 ## UI Control Discovery & Grounding
 
 Fakturama exposes its controls through Microsoft UI Automation (UIA), used as the primary mechanism for locating and interacting with them. Controls are discovered by semantic properties and UI context rather than screen coordinates, which makes the automation resilient to window resizing, monitor changes, and other layout shifts; the same discovery strategy applies across the Order, Debtor, Product, VAT, and Payment Method editors even though their layouts differ.
@@ -69,6 +78,14 @@ UI synchronization is treated as part of discovery rather than fixed sleep durat
 
 Control discovery failures are treated as explicit workflow failures. The automation retries within a bounded timeout if the expected control is not yet available, applies additional hierarchy and contextual constraints if multiple candidates are found, and stops for manual review if candidates remain ambiguous or the UI enters an unexpected state. This preserves the system's central discover, act, verify, advance model: an action is only performed when the intended control can be confidently identified, and the workflow only advances after the resulting state has been verified.
 ![Workflow Loop](Diagrams/Workflow%20Loop.png)
+
+**Implementation notes (`ui_automation/`):**
+- `controls.find_control`/`find_all_controls` and `waits.wait_until`/`wait_for_dialog`/`wait_for_stable_row_count` never import `pywinauto` directly: they operate on whatever pywinauto object (`WindowSpecification`/`UIAWrapper`) the caller already holds, calling only its documented methods (`children(control_type=, title=)`, `window(title_re=)`, `exists()`). This is a deliberate testability seam - the same shape as extraction's injectable `client` parameter - and it keeps this half of the module importable and unit-testable on macOS/Linux, verified directly rather than assumed.
+- `app.FakturamaApp` (and `spikes/uia_probe.py`) are the only places that `from pywinauto import Application`, which fails immediately off Windows (confirmed: the bare `import pywinauto` succeeds cross-platform, but the uia-backend symbols are not exposed). These can only be exercised against a real Fakturama window on the Windows 11 ARM VM.
+- Ambiguity is raised the moment more than one candidate is seen, without waiting out the rest of the bounded timeout: an ambiguous match is a structural fact about the current search scope, not a timing race, so retrying the identical search would not resolve it - the caller narrows by passing a more specific parent instead (e.g. scoping to the `Addresses` section rather than the whole window).
+- `FakturamaApp.window(title_re)` is a single generic dialog/editor accessor, not a named accessor per Fakturama screen (`order_editor()`, `debtor_editor()`, ...): the same discovery strategy applies across every editor and dialog, so Section 3 stays generic and Sections 4-6 compose `window(...)` with `find_control(...)` for whichever screen they need.
+
+See `Doc/adr/0002-ui-automation-testability-boundary.md` for the reasoning behind this split.
 
 ## Workflow & Verification
 

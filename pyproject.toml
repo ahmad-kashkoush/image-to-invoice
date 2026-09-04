@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fakturama-automation"
+version = "0.1.0"
+description = "Windows automation that turns a single order image into a saved Fakturama Order, linked Invoice, and correct payment status."
+requires-python = ">=3.11"
+dependencies = [
+    # pywinauto's uia backend only works on Windows.
+    "pywinauto>=0.6.8",
+    # Vision LLM extraction (Claude Haiku 4.5); cross-platform, needed for
+    # extraction/normalization development off the Windows VM too.
+    "anthropic>=0.69",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["fakturama_automation*"]
+
+[tool.setuptools.package-dir]
+"" = "src"

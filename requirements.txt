@@ -1,0 +1,7 @@
+# pywinauto's uia backend only works on Windows. This project is meant to
+# run inside the Windows 11 ARM VM described in README.md, not on macOS.
+pywinauto>=0.6.8
+
+# Vision LLM extraction (Claude Haiku 4.5). Cross-platform - works on macOS
+# for developing/testing extraction and normalization without the VM.
+anthropic>=0.69
