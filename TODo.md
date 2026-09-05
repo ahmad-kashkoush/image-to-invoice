@@ -1,7 +1,7 @@
 
 Tracks progress against `Doc/Design.md`'s six components. Scaffolding (module
-layout, docstrings, signatures) exists for every component; Sections 1, 2,
-and 3 have real implementations.
+layout, docstrings, signatures) exists for every component; Sections 1-5
+have real implementations.
 
 ## Done
 
@@ -75,52 +75,99 @@ and 3 have real implementations.
     return type, replacing the scaffold's bare `Any`.
   - `config.py` (new) — env-driven timeouts plus every verified
     `auto_id`/button title from the VM probe (`probes/probe-*.txt`).
-  - `debtor.py`, `product.py` — fully implemented and unit-tested (search,
-    exact match, create-and-fill-form, save) against verified control
-    identifiers. `product.py`'s `create()` resolves a missing VAT rate
-    first, per the original scaffold's "not skipped" instruction.
-  - `payment_method.py` — search half fully implemented; `create()` raises
-    a specific, named error (its create form wasn't captured cleanly during
-    probing — a probe gap, not a design gap).
-  - `vat_rate.py` — still `raise NotImplementedError`: its list view and
-    create form never rendered during probing (a stale editor was left
-    open). Blocks `product.py`'s create path transitively until fixed.
+  - `debtor.py`, `product.py`, `vat_rate.py`, `payment_method.py` — all
+    fully implemented and unit-tested (search, exact match,
+    create-and-fill-form, save) against verified control identifiers.
+    `product.py`'s `create()` resolves a missing VAT rate first, per the
+    original scaffold's "not skipped" instruction. VAT and Payment each
+    needed a second probe pass (`probes/probe-08-vats.txt`,
+    `probe-0801-vats.txt`, `probe-10-payment-create-form.txt`) after an
+    initial pass captured a stale editor instead of the target
+    list/create form; Fakturama's own create forms call these entities
+    "TAX Rate" and "New Term of Payment" internally.
   - Tests: `tests/entity_resolution/test_resolver.py`, `test_matching.py`,
     `test_debtor.py`, `test_product.py`, `test_payment_method.py`,
     `test_vat_rate.py`; `tests/ui_automation/test_vision_grounding.py`, plus
     `auto_id` coverage added to `test_controls.py`.
+  - **Still open:** the two `ComboBox.select(...)` calls (`debtor.py`
+    Country, `product.py` VAT) still pass guessed option strings, never
+    confirmed against Fakturama's real dropdown contents (ADR 0003,
+    Consequences) — probing the combos directly turned out to be its own
+    problem: a captured dropdown popup came back with zero child
+    controls, the same UIA-opacity signature as the list grids. See
+    `.claude/plans/entity-resolution-residual.md` for what's confirmed vs.
+    still an open design question (a vision-grounded combo reader may be
+    needed, the same fallback the list grids use).
   - Rationale: `Doc/adr/0003-entity-resolution.md`. Plan:
-    `.claude/plans/entity-resolution.md` (its "Remaining probe gap" section
-    lists exactly what to re-probe on the VM to unblock VAT/Payment
-    creation).
+    `.claude/plans/entity-resolution.md`,
+    `.claude/plans/entity-resolution-residual.md`.
+- **Section 5 — Verification** (`verification/`, uncommitted)
+  - `order_verification.py::verify_order_saved` — confirms the Order's own
+    tab/pane title no longer reads `"New Order"` (an assigned order number
+    was persisted), then reads back Cust.Ref./Total Gross/Discount-derived
+    Total Net/VAT/Total and the item-row grid (vision-grounded) against the
+    `NormalizedOrder`. Signature gained a `normalized_order` parameter
+    beyond the original scaffold so persistence and field-matching are
+    checked together.
+  - `invoice_verification.py::verify_invoice_matches_order` — re-verifies
+    the linked Invoice's Cust.Ref., Total, and item lines against the same
+    normalized record (Task 5.1), independent of Fakturama's own
+    Invoice-generation step.
+  - `payment_verification.py::verify_payment_applied` — confirms payment
+    method, and (if PAID) the paid toggle/payment date/full invoice Value,
+    or (if not PAID) that none of those were invented (Task 5.2/5.3/5.6).
+  - `comparisons.py` (new) — pure `money_equals`/`percent_equals`/
+    `date_equals`/`text_equals`/`order_level_totals`/`line_row_problems`,
+    bridging normalization's typed `Decimal`/`date` values against the
+    plain strings read back from the UI.
+  - `readback.py` (new) — shared `window_title`/`read_field_text`/
+    `read_toggle_state`/`read_grid` primitives every verification function
+    composes; `read_grid` reuses `ui_automation.vision_grounding` for the
+    Order/Invoice editor's own item-row grid, confirmed UIA-invisible the
+    same way entity resolution's list grids are.
+  - `config.py` (new) — env-driven timeouts; Order/Invoice editor fields
+    are selected **by accessible name**, not `auto_id` (unlike Section 4's
+    entities) — comparing `probes/probe-01-create-order.txt` against
+    `probe-02-fill-create-order.txt` found every field `auto_id` in that
+    editor differs between app sessions while names stay stable. All three
+    controls needed for Data > Documents, the linked Invoice editor's
+    layout, and the Invoice's payment controls (paid checkbox/payment
+    date/Value) have **no VM probe yet** and are left as explicit
+    empty-string placeholders (`# TODO probe`) that fail closed rather than
+    guessed identifiers — see `Doc/adr/0004-verification.md`.
+  - All three functions return `True` or raise one aggregated
+    `ManualReviewRequired` collecting every mismatch found, mirroring
+    `normalization.normalizer.normalize_order`'s fail-closed shape, rather
+    than a bare `False`/first-problem-only raise.
+  - Tests: `tests/verification/test_comparisons.py`,
+    `test_order_verification.py`, `test_invoice_verification.py`,
+    `test_payment_verification.py` — duck-typed window/control fakes and a
+    fake vision client, no real window/screenshot/network, using the
+    golden `WEB-2026-0714-A17` sample order as the known-good fixture.
+  - Rationale: `Doc/adr/0004-verification.md`. Plan:
+    `.claude/plans/verification-module.md`.
 
 ## Next (all currently `raise NotImplementedError`, uncommitted)
 
 Suggested build order follows the state machine's own dependency chain:
 
-1. **Residual from Section 4** — re-probe the VATs list/create form and the
-   Payment create form on the Windows 11 ARM VM (per
-   `.claude/plans/entity-resolution.md`'s "Remaining probe gap"), then
-   implement `vat_rate.py` and `payment_method.py`'s `create()` for real.
-   Also verify the `ComboBox.select(...)` option strings guessed in
-   `debtor.py` (Country) and `product.py` (VAT) — never confirmed against
-   Fakturama's real dropdown contents (see ADR 0003, Consequences).
-2. **Section 5 — Verification** (`verification/`)
-   - `order_verification.py`, `invoice_verification.py`,
-     `payment_verification.py` — read live UI state back rather than trusting
-     the save/create action succeeded. Expect to reuse
-     `ui_automation/vision_grounding.py`: probing found the Order editor's
-     line grid, customer field, and payment control are also UIA-invisible.
-3. **Section 6 — Error Handling** (`error_handling/`)
+1. **Residual from Section 4 (down to one item)** — VAT and Payment are
+   both now fully probed and implemented (see Section 4's Done entry
+   above). What's left: resolve whether the Product VAT / Debtor Country
+   combos are UIA-readable at all, and either confirm real option strings
+   for the current guessed `.select()` calls, or design a vision-grounded
+   combo reader if they turn out to be as UIA-opaque as the list grids —
+   see `.claude/plans/entity-resolution-residual.md`.
+2. **Section 6 — Error Handling** (`error_handling/`)
    - `manual_review.py::route_to_manual_review` — write manual-review queue
      entries (source image, failed step, reason, partial state) to the
      shared `out` folder per the README layout.
-4. **Orchestrator** (`orchestrator/state_machine.py::run_workflow`)
+3. **Orchestrator** (`orchestrator/state_machine.py::run_workflow`)
    - Implement the 9-state loop (EXTRACT → NORMALIZE → OPEN_ORDER →
      POPULATE_ORDER_FIELDS → ADD_ORDER_LINES → VALIDATE_ORDER →
      SAVE_AND_VERIFY_ORDER → CREATE_AND_VERIFY_INVOICE →
      APPLY_AND_VERIFY_PAYMENT), catching `ManualReviewRequired` at the top
-     level. This is the integration point — do it last, once 1–3 are real.
+     level. This is the integration point — do it last, once 1–2 are real.
      Note: probing found the Order editor's own line grid, customer field,
      and payment control are not exposed to UIA either (`probes/probe-01/02-*.txt`)
      — order-line entry will need the same vision-grounding/keyboard
@@ -128,15 +175,27 @@ Suggested build order follows the state machine's own dependency chain:
 
 ## Not started / not yet stubbed
 
-- Real control names/`auto_id`s for the Order editor, Invoice editor, and
-  the VATs/Payment create forms — the Order/Invoice editor was probed
-  (`probes/probe-00/01/02-*.txt`) and found largely UIA-invisible (see
-  above); VATs and Payment's create form were not captured cleanly (see
-  "Residual from Section 4" above). Use `spikes/uia_probe_editor.py
-  <keyword>` (or a full `spikes/uia_probe.py` dump — see
-  `.claude/plans/entity-resolution.md`'s Gate section for why a full dump
-  beats a keyword-filtered one for blank-named controls) against each live
-  editor/dialog as Section 5/orchestrator implementation reaches it.
+- Data > Documents, the linked Invoice editor, and the Invoice's payment
+  controls (paid checkbox, payment date, Value) have **no VM probe at
+  all** — `verification/config.py` leaves their selectors as explicit
+  empty-string placeholders (see Section 5's Done entry and
+  `Doc/adr/0004-verification.md`). The Order editor's own fields (Cust.
+  Ref./Total Gross/Discount/VAT/Total, and its tab-title-as-order-number
+  signal) are done — probing found their `auto_id`s are session-unstable
+  but their accessible names are not, so Section 5 selects them by name.
+  Use `spikes/uia_probe_editor.py <keyword>` (or a full
+  `spikes/uia_probe.py` dump — see `.claude/plans/entity-resolution.md`'s
+  Gate section for why a full dump beats a keyword-filtered one for
+  blank-named controls) against a live saved Order, Data > Documents, and
+  a linked Invoice (including its payment area) to fill these in.
+- Whether the Product VAT / Debtor Country ComboBox dropdowns are
+  UIA-readable at all — see "Residual from Section 4" above and
+  `.claude/plans/entity-resolution-residual.md`.
+- Verifying via Data > Documents itself (Task 4.5/5.5's own prescribed
+  check — a second, independent read distinct from reading the editor's
+  internal fields) — not implemented; would need its own vision-grounded
+  grid read once the pane above is probed. See
+  `Doc/adr/0004-verification.md`'s Consequences.
 
 ## Future work
 
