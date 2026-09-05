@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fakturama_automation.entity_resolution import config, matching, resolver
+from fakturama_automation.entity_resolution import combos, config, matching, resolver
 from fakturama_automation.entity_resolution.models import ResolvedEntity
 from fakturama_automation.normalization.models import NormalizedOrder
 from fakturama_automation.ui_automation import controls
@@ -62,7 +62,7 @@ def resolve_debtor(
         return [ResolvedEntity(identity=company_name, created=False, element=row) for row in matches]
 
     def create() -> ResolvedEntity:
-        element = _create_debtor(main_window, order)
+        element = _create_debtor(main_window, order, client=client)
         return ResolvedEntity(identity=company_name, created=True, element=element)
 
     return resolver.resolve_exact_or_create(
@@ -83,13 +83,17 @@ def _open_debtors_list(main_window: Any) -> None:
     controls.find_control(main_window, "Text", name="Debtors").click_input()
 
 
-def _create_debtor(main_window: Any, order: NormalizedOrder) -> Any:
+def _create_debtor(main_window: Any, order: NormalizedOrder, *, client: Any = None) -> Any:
     """Open the New Debtor form, fill it from the normalized order, save.
 
     Returns the Company edit control as the resolved record's `element`
     (a stable, re-findable reference; the editor tab/pane itself is
     unsuitable since its title and auto_id both change once data is
     entered - see entity_resolution/config.py's docstring).
+
+    `client` is the injectable vision client threaded through to
+    combos.select_exact_option, which needs it to read the Country combo's
+    real options (see combos.py's docstring).
     """
     controls.find_control(main_window, "Button", name=config.DEBTOR_NEW_BUTTON_TITLE).click_input()
 
@@ -120,15 +124,15 @@ def _create_debtor(main_window: Any, order: NormalizedOrder) -> Any:
     if address.city:
         controls.find_control(main_window, "Edit", auto_id=config.DEBTOR_FORM_CITY_AUTO_ID).set_text(address.city)
     if address.country:
-        # ComboBox.select() requires an exact option string; Fakturama's
-        # actual Country option strings were not enumerated during
-        # probing (the combo was never opened) - see
-        # .claude/plans/entity-resolution.md's "Remaining probe gap" item
-        # 4. This is left to raise naturally (not swallowed) if the option
-        # text doesn't match, per this codebase's fail-closed convention.
-        controls.find_control(
+        # Selected by reading the combo's real, currently-open options and
+        # clicking the matching one (combos.select_exact_option) - never a
+        # guessed option string - so a mismatch (e.g. the combo shows full
+        # country names while normalized data holds a code) fails closed
+        # to manual review instead of raising a raw pywinauto error.
+        country_combo = controls.find_control(
             main_window, "ComboBox", auto_id=config.DEBTOR_FORM_COUNTRY_COMBO_AUTO_ID
-        ).select(address.country)
+        )
+        combos.select_exact_option(main_window, country_combo, address.country, client=client, step="resolve_debtor")
 
     controls.find_control(main_window, "Button", name=config.SAVE_BUTTON_TITLE).click_input()
     return company_edit

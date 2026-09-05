@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fakturama_automation.entity_resolution import config, matching, resolver
+from fakturama_automation.entity_resolution import combos, config, matching, resolver
 from fakturama_automation.entity_resolution.models import ResolvedEntity
 from fakturama_automation.entity_resolution.vat_rate import resolve_vat_rate
 from fakturama_automation.normalization.models import NormalizedLineItem
@@ -60,7 +60,7 @@ def resolve_product(
 
     def create() -> ResolvedEntity:
         resolve_vat_rate(app, item.vat_percent, client=client)
-        element = _create_product(main_window, item)
+        element = _create_product(main_window, item, client=client)
         return ResolvedEntity(identity=sku, created=True, element=element)
 
     return resolver.resolve_exact_or_create(
@@ -75,11 +75,15 @@ def _open_products_list(main_window: Any) -> None:
     controls.find_control(main_window, "Text", name="Products").click_input()
 
 
-def _create_product(main_window: Any, item: NormalizedLineItem) -> Any:
+def _create_product(main_window: Any, item: NormalizedLineItem, *, client: Any = None) -> Any:
     """Open the New Product form, fill it from the normalized line item,
     select its VAT rate, and save. Returns the SKU edit control as the
     resolved record's `element` (the editor tab/pane's own title and
     auto_id are unstable once data is entered - see debtor._create_debtor).
+
+    `client` is the injectable vision client threaded through to
+    combos.select_vat_option, which needs it to read the VAT combo's real
+    options (see combos.py's docstring).
     """
     controls.find_control(main_window, "Button", name=config.PRODUCT_NEW_BUTTON_TITLE).click_input()
 
@@ -96,15 +100,12 @@ def _create_product(main_window: Any, item: NormalizedLineItem) -> Any:
             str(item.unit_net_price)
         )
 
-    # ComboBox.select() requires an exact option string; the VAT combo's
-    # actual option strings were not enumerated during probing (the combo
-    # was closed when probed - probes/probe-07-products.txt) - see
-    # .claude/plans/entity-resolution.md's "Remaining probe gap" item 4.
-    # Left to raise naturally if the option text doesn't match, per this
-    # codebase's fail-closed convention (never silently skip the VAT rate).
-    controls.find_control(main_window, "ComboBox", auto_id=config.PRODUCT_FORM_VAT_COMBO_AUTO_ID).select(
-        f"{item.vat_percent}%"
-    )
+    # Selected by reading the combo's real, currently-open options and
+    # clicking the matching one (combos.select_vat_option) - never a
+    # guessed option string - so an unexpected VAT option format fails
+    # closed to manual review instead of raising a raw pywinauto error.
+    vat_combo = controls.find_control(main_window, "ComboBox", auto_id=config.PRODUCT_FORM_VAT_COMBO_AUTO_ID)
+    combos.select_vat_option(main_window, vat_combo, item.vat_percent, client=client, step="resolve_product")
 
     controls.find_control(main_window, "Button", name=config.SAVE_BUTTON_TITLE).click_input()
     return sku_edit

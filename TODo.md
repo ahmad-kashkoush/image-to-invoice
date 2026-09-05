@@ -89,16 +89,26 @@ have real implementations.
     `test_debtor.py`, `test_product.py`, `test_payment_method.py`,
     `test_vat_rate.py`; `tests/ui_automation/test_vision_grounding.py`, plus
     `auto_id` coverage added to `test_controls.py`.
-  - **Still open:** the two `ComboBox.select(...)` calls (`debtor.py`
-    Country, `product.py` VAT) still pass guessed option strings, never
-    confirmed against Fakturama's real dropdown contents (ADR 0003,
-    Consequences) — probing the combos directly turned out to be its own
-    problem: a captured dropdown popup came back with zero child
-    controls, the same UIA-opacity signature as the list grids. See
-    `.claude/plans/entity-resolution-residual.md` for what's confirmed vs.
-    still an open design question (a vision-grounded combo reader may be
-    needed, the same fallback the list grids use).
-  - Rationale: `Doc/adr/0003-entity-resolution.md`. Plan:
+  - The two `ComboBox.select(...)` calls (`debtor.py` Country, `product.py`
+    VAT) are resolved: probing the combos directly (with each dropdown
+    actually open) found the popup renders as a single, childless `Pane`
+    that isn't even a descendant of the main window - so, unlike the list
+    grids, there was no control to read `.texts()` on regardless of
+    UIA-opacity. `entity_resolution/combos.py` (new) instead screenshots
+    `main_window` itself right after opening the combo (a screen-rect
+    grab captures the dropdown overlay too, without needing a handle to
+    the popup), asks `ui_automation.vision_grounding.read_combo_options`
+    (new) to name **and locate** each option, and clicks the matched
+    option's absolute screen coordinate - the first coordinate-based
+    click in this codebase, alongside the existing UIA-selector approach.
+    `pick_option` mirrors `matching`'s fail-closed 0/1/many exact-match
+    shape; `product.py`/`debtor.py`'s guessed `.select()` calls are gone.
+    Tests: `tests/entity_resolution/test_combos.py` (new);
+    `tests/ui_automation/test_vision_grounding.py` gained
+    `read_combo_options` coverage; `test_product.py`/`test_debtor.py`'s
+    create-path tests updated for the new click-based selection.
+  - Rationale: `Doc/adr/0003-entity-resolution.md`,
+    `Doc/adr/0006-combo-selection.md`. Plan:
     `.claude/plans/entity-resolution.md`,
     `.claude/plans/entity-resolution-residual.md`.
 - **Section 5 — Verification** (`verification/`, uncommitted)
@@ -173,14 +183,7 @@ have real implementations.
 
 Suggested build order follows the state machine's own dependency chain:
 
-1. **Residual from Section 4 (down to one item)** — VAT and Payment are
-   both now fully probed and implemented (see Section 4's Done entry
-   above). What's left: resolve whether the Product VAT / Debtor Country
-   combos are UIA-readable at all, and either confirm real option strings
-   for the current guessed `.select()` calls, or design a vision-grounded
-   combo reader if they turn out to be as UIA-opaque as the list grids —
-   see `.claude/plans/entity-resolution-residual.md`.
-2. **Orchestrator** (`orchestrator/state_machine.py::run_workflow`)
+1. **Orchestrator** (`orchestrator/state_machine.py::run_workflow`)
    - Implement the 9-state loop (EXTRACT → NORMALIZE → OPEN_ORDER →
      POPULATE_ORDER_FIELDS → ADD_ORDER_LINES → VALIDATE_ORDER →
      SAVE_AND_VERIFY_ORDER → CREATE_AND_VERIFY_INVOICE →
@@ -206,9 +209,6 @@ Suggested build order follows the state machine's own dependency chain:
   Gate section for why a full dump beats a keyword-filtered one for
   blank-named controls) against a live saved Order, Data > Documents, and
   a linked Invoice (including its payment area) to fill these in.
-- Whether the Product VAT / Debtor Country ComboBox dropdowns are
-  UIA-readable at all — see "Residual from Section 4" above and
-  `.claude/plans/entity-resolution-residual.md`.
 - Verifying via Data > Documents itself (Task 4.5/5.5's own prescribed
   check — a second, independent read distinct from reading the editor's
   internal fields) — not implemented; would need its own vision-grounded
@@ -218,6 +218,18 @@ Suggested build order follows the state machine's own dependency chain:
 ## Future work
 
 - Localization, and accepts different formats to numbers, dates, currencies,..., etc.
+- Country-code→name mapping for `debtor.py`'s Country combo: if
+  Fakturama's real Country options turn out to be full names ("Germany")
+  while normalized data holds an ISO code ("DE"), `combos.select_exact_option`
+  correctly fails closed to manual review rather than guessing — see
+  `Doc/adr/0006-combo-selection.md`, Consequences.
+- VM verification for `entity_resolution/combos.py`'s two coordinate-click
+  assumptions (not blocking — both fail closed if wrong, they just haven't
+  been tried against a live window yet): the captured screenshot's pixels
+  map 1:1 to screen coordinates (no DPI scaling), and a combo's dropdown
+  renders within `main_window`'s bounding rectangle rather than
+  overflowing it — see `.claude/plans/entity-resolution-residual.md`'s
+  "Known limitations".
 - Rich partial-state capture for manual review (deferred from Section 6,
   `Doc/adr/0005-error-handling.md`): extend `ManualReviewRequired` with an
   optional payload (e.g. `details`), thread it through the ~10 existing

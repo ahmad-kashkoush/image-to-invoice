@@ -45,10 +45,20 @@ class _FakeImage:
 class _FakeMainWindow:
     def __init__(self, registry: dict[tuple, _FakeControl]) -> None:
         self._registry = registry
+        self.click_input_calls: list[tuple] = []
 
     def children(self, control_type=None, title=None, auto_id=None):
         control = self._registry.get((control_type, title, auto_id))
         return [control] if control is not None else []
+
+    def capture_as_image(self):
+        return _FakeImage()
+
+    def rectangle(self):
+        return SimpleNamespace(left=100, top=200)
+
+    def click_input(self, coords=None, absolute=None) -> None:
+        self.click_input_calls.append((coords, absolute))
 
 
 class _FakeApp:
@@ -60,19 +70,25 @@ class _FakeApp:
 
 
 class _FakeMessages:
-    def __init__(self, rows: list[dict]) -> None:
+    def __init__(self, rows: list[dict], combo_options: list[dict] | None = None) -> None:
         self._rows = rows
+        self._combo_options = combo_options or []
 
     def create(self, **kwargs):
+        tool_name = kwargs["tool_choice"]["name"]
+        if tool_name == "record_combo_options":
+            input_data = {"options": self._combo_options}
+        else:
+            input_data = {"rows": self._rows}
         return SimpleNamespace(
             stop_reason="tool_use",
-            content=[SimpleNamespace(type="tool_use", name="record_grid_rows", input={"rows": self._rows})],
+            content=[SimpleNamespace(type="tool_use", name=tool_name, input=input_data)],
         )
 
 
 class _FakeVisionClient:
-    def __init__(self, rows: list[dict]) -> None:
-        self.messages = _FakeMessages(rows)
+    def __init__(self, rows: list[dict], combo_options: list[dict] | None = None) -> None:
+        self.messages = _FakeMessages(rows, combo_options)
 
 
 def _search_registry(nav: _FakeControl, search_edit: _FakeControl, grid_pane: _FakeControl) -> dict:
@@ -137,8 +153,11 @@ def test_creates_a_new_product_and_fills_the_form_when_no_match(monkeypatch) -> 
             ("Button", config.SAVE_BUTTON_TITLE, None): save_button,
         }
     )
-    app = _FakeApp(_FakeMainWindow(registry))
-    client = _FakeVisionClient(rows=[])
+    main_window = _FakeMainWindow(registry)
+    app = _FakeApp(main_window)
+    client = _FakeVisionClient(
+        rows=[], combo_options=[{"text": "19 %", "x": 10, "y": 20, "width": 40, "height": 10}]
+    )
 
     result = resolve_product(app, _golden_item(), client=client, settle_seconds=0)
 
@@ -147,7 +166,8 @@ def test_creates_a_new_product_and_fills_the_form_when_no_match(monkeypatch) -> 
     assert sku_edit.set_text_calls == ["ABC-1"]
     assert name_edit.set_text_calls == ["Office chair"]
     assert price_edit.set_text_calls == ["150.00"]
-    assert vat_combo.select_calls == ["19%"]
+    assert vat_combo.click_input_calls == 1
+    assert main_window.click_input_calls == [((100 + 10 + 20, 200 + 20 + 5), True)]
     assert save_button.click_input_calls == 1
 
 
