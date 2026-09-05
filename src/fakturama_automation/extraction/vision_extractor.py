@@ -153,7 +153,13 @@ _RECORD_ORDER_TOOL = {
         "everything you found."
     ),
     "input_schema": _RECORD_ORDER_SCHEMA,
-    "strict": True,
+    # No "strict": True - this schema's ~24 nullable/union-typed fields (every
+    # extracted value can be null, per this module's "never guess" rule)
+    # exceed the API's strict-mode compilation limit (400: "too many
+    # parameters with union types ... limit: 16"). tool_choice below already
+    # forces the single record_order call; every _*_from_dict parser already
+    # reads via .get(...) with fail-closed defaults rather than trusting
+    # schema-guaranteed shape, so non-strict tool use needs no other change.
 }
 
 _EXTRACTION_PROMPT = """\
