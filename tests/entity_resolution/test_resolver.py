@@ -117,7 +117,7 @@ class _FakeParent:
         self._edit = edit
         self._grid_pane = grid_pane
 
-    def children(self, control_type=None, title=None, auto_id=None):
+    def descendants(self, control_type=None, title=None, auto_id=None):
         if control_type == "Edit":
             return [self._edit]
         if control_type == "Pane":

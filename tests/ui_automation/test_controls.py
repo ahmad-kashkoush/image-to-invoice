@@ -1,8 +1,8 @@
 """Tests for ui_automation.controls.
 
-Fake parent objects duck-type only pywinauto's own `children(control_type=,
-title=)` method - no pywinauto import here, so these tests run on
-macOS/Linux without a real window or the uia backend.
+Fake parent objects duck-type only pywinauto's own `descendants(
+control_type=, title=)` method - no pywinauto import here, so these tests
+run on macOS/Linux without a real window or the uia backend.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ class FakeParent:
         self._responses = responses
         self.calls = 0
 
-    def children(self, control_type=None, title=None, auto_id=None):
+    def descendants(self, control_type=None, title=None, auto_id=None):
         index = min(self.calls, len(self._responses) - 1)
         self.calls += 1
         return self._responses[index]
@@ -43,7 +43,7 @@ def test_find_all_controls_passes_control_type_and_title_through() -> None:
     seen: dict = {}
 
     class RecordingParent:
-        def children(self, **kwargs):
+        def descendants(self, **kwargs):
             seen.update(kwargs)
             return []
 
@@ -55,7 +55,7 @@ def test_find_all_controls_omits_title_when_name_is_none() -> None:
     seen: dict = {}
 
     class RecordingParent:
-        def children(self, **kwargs):
+        def descendants(self, **kwargs):
             seen.update(kwargs)
             return []
 
@@ -70,7 +70,7 @@ def test_find_all_controls_passes_auto_id_through() -> None:
     seen: dict = {}
 
     class RecordingParent:
-        def children(self, **kwargs):
+        def descendants(self, **kwargs):
             seen.update(kwargs)
             return []
 
@@ -82,7 +82,7 @@ def test_find_all_controls_omits_auto_id_when_none() -> None:
     seen: dict = {}
 
     class RecordingParent:
-        def children(self, **kwargs):
+        def descendants(self, **kwargs):
             seen.update(kwargs)
             return []
 
@@ -114,7 +114,7 @@ def test_find_control_passes_auto_id_through_to_children() -> None:
     seen: dict = {}
 
     class RecordingParent:
-        def children(self, **kwargs):
+        def descendants(self, **kwargs):
             seen.update(kwargs)
             return [FakeElement("")]
 

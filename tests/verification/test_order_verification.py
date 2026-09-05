@@ -51,7 +51,7 @@ class _FakeOrderWindow:
     def window_text(self) -> str:
         return self._title
 
-    def children(self, control_type=None, title=None, auto_id=None):
+    def descendants(self, control_type=None, title=None, auto_id=None):
         control = self._registry.get((control_type, title, auto_id))
         return [control] if control is not None else []
 

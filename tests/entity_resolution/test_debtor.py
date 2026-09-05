@@ -57,7 +57,7 @@ class _FakeMainWindow:
         self._registry = registry
         self.click_input_calls: list[tuple] = []
 
-    def children(self, control_type=None, title=None, auto_id=None):
+    def descendants(self, control_type=None, title=None, auto_id=None):
         control = self._registry.get((control_type, title, auto_id))
         return [control] if control is not None else []
 

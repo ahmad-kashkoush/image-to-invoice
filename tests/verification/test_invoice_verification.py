@@ -38,7 +38,7 @@ class _FakeInvoiceWindow:
     def __init__(self, registry: dict[tuple, _FakeControl]) -> None:
         self._registry = registry
 
-    def children(self, control_type=None, title=None, auto_id=None):
+    def descendants(self, control_type=None, title=None, auto_id=None):
         control = self._registry.get((control_type, title, auto_id))
         return [control] if control is not None else []
 

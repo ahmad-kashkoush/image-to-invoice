@@ -90,7 +90,7 @@ class _FakeMainWindow:
     def __init__(self, registry: dict[tuple, object]) -> None:
         self._registry = registry
 
-    def children(self, control_type=None, title=None, auto_id=None):
+    def descendants(self, control_type=None, title=None, auto_id=None):
         result = self._registry.get((control_type, title, auto_id))
         if result is None:
             return []
