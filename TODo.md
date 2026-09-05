@@ -146,6 +146,28 @@ have real implementations.
     golden `WEB-2026-0714-A17` sample order as the known-good fixture.
   - Rationale: `Doc/adr/0004-verification.md`. Plan:
     `.claude/plans/verification-module.md`.
+- **Section 6 — Error Handling** (`error_handling/`, uncommitted)
+  - `manual_review.py::route_to_manual_review` — appends one JSON object
+    per line to a single queue file (`out/manual_review_queue.jsonl` by
+    default, per the README's shared folder layout), holding a timestamp,
+    the source image path, and the failing `step`/`reason`. Fail-safe by
+    contract: any write failure is caught and reported to stderr instead
+    of propagating, since this is the terminal handler for a workflow
+    run. `out_dir` and `now` are injectable keyword args (mirroring
+    Sections 1/5's `client=`/`normalized_order=` seam) so tests never
+    touch the real `out` folder or wall-clock time.
+  - `config.py` (new) — env-driven `OUT_DIR`/`QUEUE_FILENAME`, mirroring
+    every other section's `config.py`.
+  - `exceptions.py::ManualReviewRequired` left unextended (still just
+    `step`/`reason`); `route_to_manual_review` forwards a `details`
+    attribute via `getattr` if a future caller sets one, so richer partial
+    state can be added later without changing this function again — see
+    Future work below and `Doc/adr/0005-error-handling.md`.
+  - Tests: `tests/error_handling/test_manual_review.py` — JSONL
+    write/append, `out_dir` auto-creation, the fail-safe path (unwritable
+    `out_dir` still returns `None`), and the `details` forwarding hook.
+  - Rationale: `Doc/adr/0005-error-handling.md`. Plan:
+    `.claude/plans/error-handling.md`.
 
 ## Next (all currently `raise NotImplementedError`, uncommitted)
 
@@ -158,11 +180,7 @@ Suggested build order follows the state machine's own dependency chain:
    for the current guessed `.select()` calls, or design a vision-grounded
    combo reader if they turn out to be as UIA-opaque as the list grids —
    see `.claude/plans/entity-resolution-residual.md`.
-2. **Section 6 — Error Handling** (`error_handling/`)
-   - `manual_review.py::route_to_manual_review` — write manual-review queue
-     entries (source image, failed step, reason, partial state) to the
-     shared `out` folder per the README layout.
-3. **Orchestrator** (`orchestrator/state_machine.py::run_workflow`)
+2. **Orchestrator** (`orchestrator/state_machine.py::run_workflow`)
    - Implement the 9-state loop (EXTRACT → NORMALIZE → OPEN_ORDER →
      POPULATE_ORDER_FIELDS → ADD_ORDER_LINES → VALIDATE_ORDER →
      SAVE_AND_VERIFY_ORDER → CREATE_AND_VERIFY_INVOICE →
@@ -200,3 +218,17 @@ Suggested build order follows the state machine's own dependency chain:
 ## Future work
 
 - Localization, and accepts different formats to numbers, dates, currencies,..., etc.
+- Rich partial-state capture for manual review (deferred from Section 6,
+  `Doc/adr/0005-error-handling.md`): extend `ManualReviewRequired` with an
+  optional payload (e.g. `details`), thread it through the ~10 existing
+  raise sites across extraction/normalization/entity_resolution/
+  verification, and add a `Decimal`/`date`-aware JSON encoder so a queue
+  entry can carry the actual `NormalizedOrder`/ambiguous candidates, not
+  just `step`/`reason`. `manual_review.route_to_manual_review` already
+  forwards a `details` attribute via `getattr` if set, so this is additive
+  and needs no further change to that function.
+- Per-entry manual-review files (one JSON file per stuck order, e.g. under
+  `out/manual_review/`) plus a separate human-readable log, if the single
+  `out/manual_review_queue.jsonl` append-only file proves insufficient
+  once a human/tool actually processes entries (no claim/delete workflow
+  today) — see `Doc/adr/0005-error-handling.md`'s Consequences.

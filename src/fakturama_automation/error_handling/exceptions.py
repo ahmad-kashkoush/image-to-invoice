@@ -13,9 +13,13 @@ class ManualReviewRequired(Exception):
     """Raised when the workflow cannot safely proceed on its own and must
     stop for a human to look at it.
 
-    TODO(section 6): carry enough context (which step, what was
-    ambiguous or failed, and the relevant order/line identifiers) for
-    manual_review.py to write a useful entry to the review queue.
+    Deliberately left carrying only step/reason for now: manual_review.py
+    (Section 6) writes a useful entry from these two fields plus the
+    source image path callers already pass separately. Attaching richer
+    partial state (the NormalizedOrder, ambiguous candidates) here is
+    deferred to TODo.md's Future work - manual_review.py already forwards
+    a `details` attribute if a future caller sets one (see its docstring),
+    so no signature change is needed here to add that later.
     """
 
     def __init__(self, step: str, reason: str) -> None:
