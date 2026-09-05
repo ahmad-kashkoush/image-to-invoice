@@ -10,10 +10,13 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from fakturama_automation.orchestrator.state_machine import run_workflow
 
 
 def main() -> None:
+    load_dotenv()
     parser = argparse.ArgumentParser(
         description="Run the Fakturama order-to-invoice workflow for a single order image."
     )

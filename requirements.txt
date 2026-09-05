@@ -5,3 +5,7 @@ pywinauto>=0.6.8
 # Vision LLM extraction (Claude Haiku 4.5). Cross-platform - works on macOS
 # for developing/testing extraction and normalization without the VM.
 anthropic>=0.69
+
+# Loads ANTHROPIC_API_KEY (and any other secret) from a local .env file so
+# it doesn't have to be set as a shell env var every session.
+python-dotenv>=1.0
