@@ -27,6 +27,29 @@ import argparse
 from pywinauto import Application
 
 
+def _dump_subtree(control, indent: int = 0) -> None:
+    """Recursively print each control's identifying info (control_type,
+    auto_id, name, class_name) and its rectangle, in the style of
+    WindowSpecification.print_control_identifiers() - but that method only
+    exists on the lazy WindowSpecification proxy, not on already-resolved
+    leaf wrapper instances (e.g. StaticWrapper) like the ones returned by
+    window.descendants(), so this uses only universally-available wrapper
+    methods (.element_info, .children()) instead.
+    """
+    info = control.element_info
+    prefix = "  " * indent
+    auto_id = getattr(info, "automation_id", None) or ""
+    class_name = getattr(info, "class_name", None) or ""
+    rect = info.rectangle
+    print(
+        f"{prefix}{info.control_type} - {info.name!r}    "
+        f"(L{rect.left}, T{rect.top}, R{rect.right}, B{rect.bottom})"
+    )
+    print(f"{prefix}  auto_id={auto_id!r}, class_name={class_name!r}")
+    for child in control.children():
+        _dump_subtree(child, indent + 1)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -45,7 +68,14 @@ def main() -> None:
     print()
 
     window = app.top_window()
-    matches = window.descendants(title_re=f"(?i).*{args.keyword}.*")
+    # UIAElementInfo.descendants() (what WindowSpecification.descendants()
+    # delegates to) only accepts title/class_name/control_type/content_only -
+    # title_re is a WindowSpecification/child_window()-only lazy-matching
+    # kwarg, not supported here. Fetch every descendant unfiltered and do the
+    # case-insensitive substring match ourselves via window_text() (the same
+    # wrapper method already used below on each match).
+    keyword = args.keyword.lower()
+    matches = [control for control in window.descendants() if keyword in control.window_text().lower()]
 
     if not matches:
         print(
@@ -62,7 +92,7 @@ def main() -> None:
 
     for control in matches:
         print(f"Identifiers for: {control.window_text()!r}\n")
-        control.print_control_identifiers()
+        _dump_subtree(control)
         print()
 
 
