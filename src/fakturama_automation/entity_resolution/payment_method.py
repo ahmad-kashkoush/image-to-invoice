@@ -2,17 +2,10 @@
 payment method only if no exact match exists.
 
 Section 4 (entity_resolution). Fakturama calls this entity "terms of
-payment" in its own UI (see the left Navigation View label). The search
-half is fully probed (probes/probe-09-Payment.txt) and implemented below;
-the create half is not - that probe captured the "Create a new term of
-payment" button but not the form it opens (a stale Product editor was
-still open when the probe ran), so its field auto_ids are unknown. Calling
-create() (resolving a payment method Fakturama doesn't already have)
-raises a clear RuntimeError naming the gap, rather than guessing field
-names or silently doing nothing. See .claude/plans/entity-resolution.md's
-"Remaining probe gap" for exactly what to re-probe; once
-entity_resolution/config.py's PAYMENT_FORM_NAME_AUTO_ID is filled in, this
-should follow the same _create_* shape as debtor.py/product.py.
+payment" in its own UI (see the left Navigation View label), but "New Term
+of Payment" in the create form's own tab title. Both the search half
+(probes/probe-09-Payment.txt) and the create half
+(probes/probe-10-payment-create-form.txt) are now fully probed.
 """
 
 from __future__ import annotations
@@ -59,12 +52,8 @@ def resolve_payment_method(
         return [ResolvedEntity(identity=payment_method, created=False, element=row) for row in matches]
 
     def create() -> ResolvedEntity:
-        raise RuntimeError(
-            f"cannot create payment method {payment_method!r}: the 'Create a new term of "
-            "payment' form has not been probed yet (entity_resolution.config."
-            "PAYMENT_FORM_NAME_AUTO_ID is None) - see .claude/plans/entity-resolution.md's "
-            "'Remaining probe gap'"
-        )
+        element = _create_payment_method(main_window, payment_method)
+        return ResolvedEntity(identity=payment_method, created=True, element=element)
 
     return resolver.resolve_exact_or_create(
         search_by, create, entity=f"payment method '{payment_method}'", step="resolve_payment_method"
@@ -78,3 +67,21 @@ def _open_payment_methods_list(main_window: Any) -> None:
     "Payment methods" - confirmed in probes/probe-00-root.txt.
     """
     controls.find_control(main_window, "Text", name="terms of payment").click_input()
+
+
+def _create_payment_method(main_window: Any, payment_method: str) -> Any:
+    """Open the New Term of Payment form, fill its Name field, save.
+
+    Only Name is filled - the form's Account, Description, Payment code,
+    Cash discount, Discount Days, and Net Days fields
+    (probes/probe-10-payment-create-form.txt) are all optional and left
+    at their defaults, the same "fill what's needed" approach as
+    debtor._create_debtor/product._create_product.
+    """
+    controls.find_control(main_window, "Button", name=config.PAYMENT_NEW_BUTTON_TITLE).click_input()
+
+    name_edit = controls.find_control(main_window, "Edit", auto_id=config.PAYMENT_FORM_NAME_AUTO_ID)
+    name_edit.set_text(payment_method)
+
+    controls.find_control(main_window, "Button", name=config.SAVE_BUTTON_TITLE).click_input()
+    return name_edit

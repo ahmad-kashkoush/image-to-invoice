@@ -7,13 +7,11 @@ change without touching the resolvers and tests can override them.
 The per-entity selector constants below are pywinauto identifiers pinned
 from probes/probe-*.txt (captured on the Windows 11 ARM VM against a real
 Fakturama window - see probes/probe-06-debitors.txt, probe-07-products.txt,
-probe-09-Payment.txt, probes/probe-03/04-*-debitor.txt). Debtor and Product
-are fully probed; VAT and Payment's create-form fields are not yet captured
-(their list views were probed, but a stale editor was open when the create
-forms should have been) - those are marked TODO(VM-probe) below and are the
-one thing Stage 3 still needs before vat_rate.py/payment_method.py can be
-implemented for real. Keeping every selector here (not inline in each
-resolver module) means the re-probe only touches this file.
+probe-08-vats.txt, probe-0801-vats.txt, probe-09-Payment.txt,
+probe-10-payment-create-form.txt, probes/probe-03/04-*-debitor.txt).
+Debtor, Product, VAT, and Payment are all now fully probed and pinned.
+Keeping every selector here (not inline in each resolver module) means a
+future re-probe only touches this file.
 """
 
 from __future__ import annotations
@@ -68,27 +66,23 @@ PRODUCT_FORM_NAME_AUTO_ID = "133744"
 PRODUCT_FORM_VAT_COMBO_AUTO_ID = "133754"
 PRODUCT_FORM_PRICE_AUTO_ID = "133802"  # blank-named Edit ("Price (gross)")
 
-# -- VAT rate (probes/probe-08-vats.txt: list not rendered, form not -----
-# -- captured; a stale Product editor was open during that probe pass) --
+# -- VAT rate (re-probed with the VATs list/create form open - -----------
+# -- probes/probe-08-vats.txt (list), probe-0801-vats.txt (create form). -
+# -- Fakturama calls this entity "TAX Rate" in its own create form, even -
+# -- though its own nav label and every other screen say "VATs". --------
 
-# TODO(VM-probe): re-probe with the VATs list open (nav -> VATs) and the
-# "New VAT" form open, per Doc/.claude/plans/entity-resolution.md's
-# "Remaining probe gap" section. Placeholders below are deliberately None
-# so a resolver that tries to use them fails loudly instead of silently
-# targeting the wrong control.
-VAT_LIST_PANE_AUTO_ID: str | None = None
-VAT_SEARCH_EDIT_AUTO_ID: str | None = None
-VAT_NEW_BUTTON_TITLE: str | None = None
-VAT_FORM_NAME_AUTO_ID: str | None = None
-VAT_FORM_PERCENT_AUTO_ID: str | None = None
+VAT_LIST_PANE_AUTO_ID = "723642"
+VAT_SEARCH_EDIT_AUTO_ID = "133830"  # blank-named Edit
+VAT_NEW_BUTTON_TITLE = "Create a new tax rate"
+VAT_FORM_NAME_AUTO_ID = "133868"  # "Name"
+VAT_FORM_PERCENT_AUTO_ID = "199168"  # "Value"
 
 # -- Payment method / "terms of payment" (probes/probe-09-Payment.txt: ---
-# -- list view captured; create form not captured, same stale-editor cause)
+# -- list view; probes/probe-10-payment-create-form.txt: create form, ----
+# -- captured as Fakturama's own "New Term of Payment" editor) -----------
 
 PAYMENT_LIST_PANE_AUTO_ID = "854450"
 PAYMENT_SEARCH_EDIT_AUTO_ID = "68042"  # blank-named Edit
 PAYMENT_NEW_BUTTON_TITLE = "Create a new term of payment"
-
-# TODO(VM-probe): the "Create a new term of payment" form's own fields
-# (name, and any other required field) were never opened during probing.
-PAYMENT_FORM_NAME_AUTO_ID: str | None = None
+PAYMENT_FORM_NAME_AUTO_ID = "66848"  # "Name"; Account/Description/Cash
+# discount/Discount Days/Net Days are all optional and left unfilled.

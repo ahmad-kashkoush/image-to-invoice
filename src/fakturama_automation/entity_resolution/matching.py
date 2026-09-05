@@ -76,13 +76,22 @@ def exact_vat_matches(
     """
     matches = []
     for row in rows:
-        parsed = _parse_vat_text(read(row))
+        parsed = parse_vat_text(read(row))
         if parsed is not None and parsed == vat_percent:
             matches.append(row)
     return matches
 
 
-def _parse_vat_text(text: str) -> Decimal | None:
+def parse_vat_text(text: str) -> Decimal | None:
+    """Parse a VAT percent read back from Fakturama's UI ("19 %",
+    "19,00 %", a bare "19") to a Decimal, or None if it doesn't parse.
+
+    Public (not module-private) so other modules needing the same
+    VAT-text parsing (e.g. a future ComboBox-option reader) reuse this one
+    implementation rather than re-deriving it - CLAUDE.md's "keep this
+    formula in exactly one place" rule applied to VAT-text parsing, not
+    just the line total formula.
+    """
     cleaned = _PERCENT_SYMBOL.sub("", text).strip()
     if not cleaned:
         return None

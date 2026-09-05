@@ -2,10 +2,8 @@
 
 Same duck-typed fake style as tests/entity_resolution/test_debtor.py; see
 its module docstring. Selectors mirror entity_resolution/config.py's
-Payment entries, pinned from probes/probe-09-Payment.txt. Only the search
-half is implemented (see payment_method.py's module docstring for why);
-create()'s error path is asserted directly rather than exercised through a
-full fake registry, since there is no create-form selector to fake yet.
+Payment entries, pinned from probes/probe-09-Payment.txt (search) and
+probes/probe-10-payment-create-form.txt (create form).
 """
 
 from __future__ import annotations
@@ -106,14 +104,27 @@ def test_raises_manual_review_when_more_than_one_exact_match() -> None:
     assert exc_info.value.step == "resolve_payment_method"
 
 
-def test_create_raises_a_clear_error_naming_the_probe_gap_when_no_match() -> None:
-    # No new-button/create-form controls are registered - if create() ever
-    # tried to interact with the UI before raising, find_control would
-    # raise ControlNotFoundError instead of this RuntimeError, which would
-    # also fail this test. That absence is itself part of the assertion.
+def test_creates_a_new_payment_method_and_fills_the_form_when_no_match() -> None:
     nav, search_edit, grid_pane = _FakeControl(), _FakeControl(), _FakeGridPane()
-    app = _FakeApp(_FakeMainWindow(_search_registry(nav, search_edit, grid_pane)))
+    new_button = _FakeControl()
+    name_edit = _FakeControl()
+    save_button = _FakeControl()
+
+    registry = _search_registry(nav, search_edit, grid_pane)
+    registry.update(
+        {
+            ("Button", config.PAYMENT_NEW_BUTTON_TITLE, None): new_button,
+            ("Edit", None, config.PAYMENT_FORM_NAME_AUTO_ID): name_edit,
+            ("Button", config.SAVE_BUTTON_TITLE, None): save_button,
+        }
+    )
+    app = _FakeApp(_FakeMainWindow(registry))
     client = _FakeVisionClient(rows=[])
 
-    with pytest.raises(RuntimeError, match="has not been probed yet"):
-        resolve_payment_method(app, "Bank Transfer", client=client, settle_seconds=0)
+    result = resolve_payment_method(app, "Bank Transfer", client=client, settle_seconds=0)
+
+    assert result.created is True
+    assert result.identity == "Bank Transfer"
+    assert new_button.click_input_calls == 1
+    assert name_edit.set_text_calls == ["Bank Transfer"]
+    assert save_button.click_input_calls == 1
