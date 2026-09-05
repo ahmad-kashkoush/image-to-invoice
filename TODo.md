@@ -1,7 +1,8 @@
 
-Tracks progress against `Doc/Design.md`'s six components. Scaffolding (module
-layout, docstrings, signatures) exists for every component; Sections 1-5
-have real implementations.
+Tracks progress against `Doc/Design.md`'s six components plus the
+Orchestrator. Scaffolding (module layout, docstrings, signatures) exists for
+every component; Sections 1-7 all have real implementations now — what
+remains is VM-probe-gated (see "Not started" below), not unimplemented code.
 
 ## Done
 
@@ -178,21 +179,54 @@ have real implementations.
     `out_dir` still returns `None`), and the `details` forwarding hook.
   - Rationale: `Doc/adr/0005-error-handling.md`. Plan:
     `.claude/plans/error-handling.md`.
+- **Section 7 — Orchestrator** (`orchestrator/`, uncommitted)
+  - `state_machine.py::run_workflow(image_path, *, app=None, client=None,
+    out_dir=None, settle_seconds=...)` — the 9-state loop (EXTRACT →
+    NORMALIZE → OPEN_ORDER → POPULATE_ORDER_FIELDS → ADD_ORDER_LINES →
+    VALIDATE_ORDER → SAVE_AND_VERIFY_ORDER → CREATE_AND_VERIFY_INVOICE →
+    APPLY_AND_VERIFY_PAYMENT), threading one `FakturamaApp`-like handle and
+    one vision `client` through every section. One `try/except` around the
+    whole sequence catches both `ManualReviewRequired` (from any section)
+    and a bare `ui_automation` control-discovery failure
+    (`ControlNotFoundError`/`AmbiguousControlError`/`DialogTimeoutError`,
+    converted to `ManualReviewRequired(state.value, ...)`), routing to
+    `error_handling.manual_review.route_to_manual_review`. Returns the
+    `WorkflowState` last reached (`DONE` on success) rather than `None`.
+  - `actions.py` (new) — every UI write action
+    (`open_new_order`/`populate_order_fields`/`add_order_line`/
+    `save_order`/`create_linked_invoice`/`apply_payment`), kept out of
+    `state_machine.py` so the loop reads as control flow. The main
+    toolbar's `"Create: New Order"` button and the New Order editor's own
+    Pane (reusing `verification.config.ORDER_TAB_TITLE_UNSAVED`) are
+    probed and pinned; the Order's customer/payment-method attachment
+    fields, the order-line grid's entry affordance, and the Data >
+    Documents "create linked invoice" action have no VM probe yet and are
+    left as explicit empty-string `# TODO probe` placeholders in
+    `config.py`, so they fail closed against a real window (see "Not
+    started" below, unchanged).
+  - `config.py` (new) — env-driven timeouts plus the selectors above;
+    reuses `entity_resolution.config`/`verification.config` constants
+    rather than duplicating them.
+  - `__main__.py` (new) — `python -m fakturama_automation.orchestrator
+    <image_path>` CLI wrapper around `run_workflow`.
+  - `ui_automation.app.FakturamaApp` is imported inside `run_workflow`'s
+    body (not at module level) so the orchestrator package stays
+    importable cross-platform when a caller/test supplies its own fake
+    `app` — see `Doc/adr/0007-orchestrator.md`.
+  - Tests: `tests/orchestrator/test_state_machine.py` — a normalization
+    failure, a control-discovery failure converted at the loop boundary,
+    and a downstream `ManualReviewRequired` (entity resolution's ambiguous-
+    match rule) passing through unchanged, each read back from the manual-
+    review queue file. Does not exercise a full extract-to-`DONE` run (see
+    ADR's Consequences) — full suite: 165 passed.
+  - Rationale: `Doc/adr/0007-orchestrator.md`. Plan:
+    `.claude/plans/orchestrator.md`.
 
-## Next (all currently `raise NotImplementedError`, uncommitted)
+## Next
 
-Suggested build order follows the state machine's own dependency chain:
-
-1. **Orchestrator** (`orchestrator/state_machine.py::run_workflow`)
-   - Implement the 9-state loop (EXTRACT → NORMALIZE → OPEN_ORDER →
-     POPULATE_ORDER_FIELDS → ADD_ORDER_LINES → VALIDATE_ORDER →
-     SAVE_AND_VERIFY_ORDER → CREATE_AND_VERIFY_INVOICE →
-     APPLY_AND_VERIFY_PAYMENT), catching `ManualReviewRequired` at the top
-     level. This is the integration point — do it last, once 1–2 are real.
-     Note: probing found the Order editor's own line grid, customer field,
-     and payment control are not exposed to UIA either (`probes/probe-01/02-*.txt`)
-     — order-line entry will need the same vision-grounding/keyboard
-     approach as entity search, not `find_control` selectors.
+All six components and the orchestrator now have real implementations.
+What remains is VM-probe-gated (see "Not started" below), not a new
+section.
 
 ## Not started / not yet stubbed
 
@@ -214,6 +248,15 @@ Suggested build order follows the state machine's own dependency chain:
   internal fields) — not implemented; would need its own vision-grounded
   grid read once the pane above is probed. See
   `Doc/adr/0004-verification.md`'s Consequences.
+- The Order editor's own line grid, customer field, and payment-method
+  attachment control are not exposed to UIA either (`probes/probe-01/02-*.txt`)
+  — order-line entry will need the same vision-grounding/keyboard approach
+  as entity search, not a plain `find_control` selector.
+  `orchestrator/config.py` leaves `ORDER_CUSTOMER_FIELD_AUTO_ID`/
+  `ORDER_PAYMENT_METHOD_FIELD_AUTO_ID`/`ORDER_LINE_ADD_BUTTON_TITLE`/
+  `INVOICE_FROM_ORDER_BUTTON_TITLE`/`INVOICE_EDITOR_PANE_NAME` as explicit
+  empty-string placeholders for this reason (Section 7's Done entry,
+  `Doc/adr/0007-orchestrator.md`).
 
 ## Future work
 
