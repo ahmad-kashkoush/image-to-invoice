@@ -87,10 +87,32 @@ accidental local copy.
 7. **Invoice creation and payment status**, last, since it depends on an
    already verified saved Order.
 
-## Notes
+# Progress
 
-- Entity resolution is exact match only, no fuzzy matching. A wrong match
-  is worse than routing to creation or manual review.
-- Line totals are recomputed from quantity, unit price, and discount and
-  compared against the source line total, both during normalization and
-  again immediately after each order line is entered.
+**[Demo video — TODO: add link]**
+
+## Done
+
+- [x] Image Extraction
+- [x] Normalization & Validation
+- [x] UI Automation (control discovery)
+- [x] Entity Resolution
+- [x] Verification
+- [x] Error Handling
+- [x] Orchestrator
+- [ ] Full live run through `ADD_ORDER_LINES` and beyond (blocked, see
+      `TODo.md`'s "Not started" section)
+
+## Next Steps
+
+If I have 3 more hours I will:
+
+- Fix `ADD_ORDER_LINES` on a multi-line
+  order.
+- Fix `vat_rate.py` such as `debtor.py`
+- Probe the unprobed screens (Data > Documents, the linked Invoice
+  editor, its payment controls) with `spikes/uia_probe_editor.py` and
+  fill in `verification/config.py`'s empty placeholders.
+- Run the full workflow end-to-end on the golden sample order
+  (`WEB-2026-0714-A17`) and fix whatever the first live failure past
+  `ADD_ORDER_LINES` turns out to be.
