@@ -242,6 +242,31 @@ All six components and the orchestrator now have real implementations.
 What remains is VM-probe-gated (see "Not started" below), not a new
 section.
 
+- **VM verification needed**: `add_order_line`'s Qty./Discount fill step
+  (`orchestrator/actions.py`) reads both columns from a single screenshot
+  of the Items grid (`vision_grounding.read_active_row_cells`), assuming
+  both fit in the visible viewport at once. On the dev machine used for
+  the 2026-09-06 VAT-duplicate debugging session (see "Not started"
+  below), the grid has too many columns (Pos./Qty./Item No./Picture/Name/
+  Description/VAT/U.Price/Discount/Price) to show Qty. and Discount
+  together — confirmed live: at every horizontal scroll position tried,
+  one or the other column always fell outside the captured control's
+  bounds. Fails closed (`ManualReviewRequired`) rather than misreading, so
+  not unsafe, but blocks completing an order on a narrow-enough window.
+  Also observed: the grid pane's own reported UIA rect extended past the
+  main window's rect on that machine — possibly a DPI-scaling quirk local
+  to that dev box rather than a real constraint on the target Windows 11
+  ARM VM. Needs checking against the actual VM before deciding whether
+  `add_order_line` needs a scroll-and-re-read fix (read Qty. at the
+  default scroll position, scroll right, read Discount separately) or
+  this was dev-machine-only. Update: a later clean run in this same
+  session (fresh Fakturama process, both line items added end-to-end, see
+  "Not started" below) did *not* hit this - Qty. and Discount were both
+  visible together that time. Not reproduced a second time, so leaning
+  towards this having been a transient scroll-position artifact of the
+  earlier debugging session rather than a fixed viewport constraint - but
+  still unverified on the real VM, so leaving this open.
+
 ## Not started / not yet stubbed
 
 - Data > Documents, the linked Invoice editor, and the Invoice's payment
@@ -426,6 +451,57 @@ section.
   rate on a fresh process, this points at something outside this
   codebase's control (Fakturama/SWT/UIA-bridge stability) rather than a
   fixable client-side race.
+
+  A later session (2026-09-06, continued) tracked down the actual root
+  cause of the user-reported symptom ("adds the first item 3 times, then
+  errors") with a live Fakturama instance connected directly: two
+  separate, real bugs, not the suspected "process degradation".
+
+  First: `entity_resolution.vat_rate._create_vat_rate` filled the "Value"
+  field with plain `controls.type_text` (click + type, no clear). That
+  field defaults to pre-filled "0%", so the keystrokes inserted into the
+  existing text instead of replacing it - confirmed live (screenshot of
+  the saved record) that Fakturama silently kept Value at "0%" regardless
+  of what was typed, while Name saved correctly as e.g. "19%". Since
+  `resolve_vat_rate`'s search matches by that same Value column, it could
+  never find its own previously-created rate on the next lookup, creating
+  a fresh duplicate "19%"/Value-0% record every time a new product needed
+  that VAT percent - almost certainly how the product catalog accumulated
+  enough duplicate/junk data over repeated dev/test runs to eventually
+  destabilize the "Select a product" picker (see the `AmbiguousControlError`
+  history above this run's `resolve_vat_rate` even had to route around).
+  Fixed: clear the field (`Ctrl+A`+`Delete`) before typing and commit with
+  a trailing `Tab`, mirroring `_fill_grid_text_cell`'s existing pattern.
+  Confirmed live: Value now reads back correctly (e.g. "25%") both before
+  and after Save.
+
+  Second, and the direct cause of the duplicate-add symptom itself: typing
+  an exact SKU into the "Select a product" dialog's search box can make
+  Fakturama auto-confirm the single narrowed-down match and close the
+  dialog **on its own** - before `_pick_single_row_in_dialog` ever gets to
+  read the grid, click the row, or click OK. Traced live with
+  instrumentation on every internal step (`_open_picker_dialog`/
+  `_pick_single_row_in_dialog` wrapped to print success/failure): all 3
+  retry attempts reported the identical "no Text control named 'Search:'
+  ... found within 5.0s" failure (the re-find right after typing, `actions.py`
+  ~line 403) with `[pick] SUCCESS` never printed once - yet the Items grid
+  showed 3 duplicate rows of that same SKU afterward. The dialog closing
+  itself post-type is a *success* (the row is already added), not the
+  flash-close race the earlier fixes in this log addressed - but the old
+  code had no way to tell the difference, so the retry loop reopened the
+  picker and re-added the row on every attempt that hit this. Fixed:
+  `_pick_single_row_in_dialog` now checks `dialog.exists()` right after
+  typing (before re-finding "Search:"), via a new `_dialog_still_exists`
+  helper that also treats a raw `_ctypes.COMError` from a stale
+  handle-based wrapper's `.exists()` re-resolution as "gone" (confirmed
+  live this can happen) rather than propagating it - if the dialog is
+  already gone, returns immediately instead of continuing to look for its
+  (now nonexistent) content. Confirmed live, end-to-end, on a freshly
+  restarted Fakturama process with both fixes in place: a 2-line-item
+  order added both lines exactly once each with correct Qty./quantities/
+  VAT/totals (`CHR-ERG-01` x2 @ $250 + `MAT-DESK-02` x3 @ $40 = $620.00
+  gross), no manual-review entry, no duplicate rows, no duplicate VAT
+  records.
 
 ## Future work
 

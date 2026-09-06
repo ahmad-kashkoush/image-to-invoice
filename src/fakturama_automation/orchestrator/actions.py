@@ -372,6 +372,25 @@ def _open_picker_dialog(
     raise last_error
 
 
+def _dialog_still_exists(dialog: Any) -> bool:
+    """dialog.exists(), but treating a COMError as "gone" rather than
+    propagating it.
+
+    Confirmed live: once the underlying OS window is actually destroyed,
+    re-resolving this handle-based wrapper's element can raise a raw
+    _ctypes.COMError ("An event was unable to invoke any of the
+    subscribers") instead of exists() returning False - the same class of
+    transient UIA/COM hiccup controls.find_control already treats as "not
+    there" rather than a hard failure.
+    """
+    from _ctypes import COMError
+
+    try:
+        return dialog.exists()
+    except COMError:
+        return False
+
+
 def _pick_single_row_in_dialog(
     dialog: Any,
     *,
@@ -397,6 +416,17 @@ def _pick_single_row_in_dialog(
     search_edit.set_text(key)
     time.sleep(settle_seconds)
 
+    if not _dialog_still_exists(dialog):
+        # Fakturama can auto-confirm and close this dialog on its own once
+        # the typed search narrows to exactly one row - confirmed live,
+        # repeatedly: searching an exact SKU that matches a single catalog
+        # product closes the dialog immediately, with that row already
+        # added, no row-click or OK needed. Treating the vanished dialog as
+        # a failure here (the previous behavior) made the caller's retry
+        # loop reopen the picker and add the same row again - once per
+        # retry, since each retry hit this same auto-confirm and "failed"
+        # the same way. Returning success here is what stops that.
+        return
     # search_label re-found fresh, not the pre-typing reference: typing can
     # rebuild the dialog's widget tree as it filters results, breaking that
     # reference's own .parent() chain even though the search itself worked.

@@ -82,10 +82,13 @@ def _create_vat_rate(main_window: Any, vat_percent: Decimal) -> Any:
     Selected by accessible NAME ("Name"/"Value"), not auto_id - neither
     Edit is actually blank-named.
 
-    Value is filled via controls.type_text (real keystrokes), not
-    set_text(): set_text() silently failed to persist it through Save (the
-    saved record's Value read back as "0%") - there's no single "always
-    this field" rule, just individual fields that need real keystrokes.
+    Value's default content ("0%") is cleared before typing, then committed
+    with a trailing Tab: confirmed live that plain controls.type_text
+    (click + type, no clear) inserts into that existing "0%" instead of
+    replacing it, so Fakturama silently saves the record with Value "0%"
+    regardless of what was typed - real keystrokes alone (without the
+    clear+Tab) aren't enough here, unlike every other field in this module
+    that starts out blank.
     """
     controls.focus(main_window)
     controls.find_control(main_window, "Button", name=config.VAT_NEW_BUTTON_TITLE).click_input()
@@ -93,7 +96,11 @@ def _create_vat_rate(main_window: Any, vat_percent: Decimal) -> Any:
     name_edit = controls.find_control(main_window, "Edit", name="Name")
     name_edit.set_text(f"{vat_percent}%")
 
-    controls.type_text(controls.find_control(main_window, "Edit", name="Value"), str(vat_percent))
+    value_edit = controls.find_control(main_window, "Edit", name="Value")
+    value_edit.click_input()
+    value_edit.type_keys("^a{DELETE}")
+    value_edit.type_keys(controls.escape_send_keys(str(vat_percent)), with_spaces=True)
+    value_edit.type_keys("{TAB}")
 
     controls.focus(main_window)
     controls.find_control(main_window, "Button", name=config.SAVE_BUTTON_TITLE).click_input()
