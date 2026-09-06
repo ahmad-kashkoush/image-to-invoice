@@ -2,8 +2,8 @@
 # Fakturama Automation
 
 See [Doc/Design.md](Doc/Design.md) for the architecture and design decisions,
-and [Gaps and next steps](#gaps-and-next-steps) for what the build is missing
-and what I would do with three more hours.
+and [Next Steps](#next-steps) for what the build is missing and what I would
+do with three more hours.
 
 Takes a single order image, extracts and normalizes its data via a vision
 LLM, and drives Fakturama's UI to produce a saved Order, a linked Invoice, and the correct payment status.
@@ -17,30 +17,42 @@ https://github.com/user-attachments/assets/2cf5215d-e279-4c58-830c-274da4966360
 
 ### Prerequisites
 
-* Windows.
-* Python.
+* Windows 10/11 — `pywinauto`'s `uia` backend is Windows-only, so the
+  workflow cannot run on macOS or Linux. (Extraction and normalization are
+  pure Python and do import there.)
+* Python 3.11 or newer (`pyproject.toml`'s `requires-python`).
+* [Fakturama](https://www.fakturama.info/download/), installed and running.
+* An `ANTHROPIC_API_KEY` for the vision extraction pass.
 
 ### Setup
 
 If you're using Claude Code, run the `/setup` skill (`.claude/skills/setup/`) to create the virtual environment, install dependencies, and configure `.env`.
 
-Otherwise:
+Otherwise, from the repo root in PowerShell:
 
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -e ".[dev]"
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -e ".[dev]"
 
-cp .env.example .env  # then fill in ANTHROPIC_API_KEY
+copy .env.example .env   # then fill in ANTHROPIC_API_KEY
 ```
+
+`pyproject.toml` is the authoritative dependency list — the command above
+installs it. `requirements.txt` holds the same set with a comment per
+dependency explaining why it's needed; it's there to be read, not installed
+from.
 
 ### Running the Workflow
 
 * Open the Fakturama application.
-* Run this command:
+* Run this command (from the repo root, in PowerShell):
 
-```bash
-python -m fakturama_automation.orchestrator <image_path>
+```powershell
+.venv\Scripts\python -m fakturama_automation.orchestrator <image_path>
 ```
+
+Or activate the environment first (`.venv\Scripts\Activate.ps1`) and drop the
+`.venv\Scripts\` prefix.
 
 ## Project Structure
 

@@ -2,7 +2,22 @@
 
 ## Status
 
-Accepted
+Accepted. Consequences overtaken — see Amendment (2026-09-06).
+
+> **Amendment (2026-09-06).** The Decisions below still hold. The
+> Consequences describe a mid-build state that has since closed:
+>
+> - `vat_rate.resolve_vat_rate` and `product.resolve_product`'s create path
+>   are implemented; there is no `NotImplementedError` left anywhere in
+>   `src/`. `payment_method.resolve_payment_method`'s create path is real
+>   too.
+> - The unverified `ComboBox.select(...)` option-string guesses in
+>   `debtor.py` (Country) and `product.py` (VAT) were replaced —
+>   see `0006`, which supersedes that consequence entirely.
+> - The per-module "fully unit-tested on macOS" claims describe the state at
+>   the time. `debtor.py`, `product.py` and `resolver.py`'s UI-writing tests
+>   were since removed as low-value; only `test_matching.py` and
+>   `test_resolver.py` remain (`CLAUDE.md`'s test conventions).
 
 ## Context
 

@@ -2,7 +2,28 @@
 
 ## Status
 
-Accepted
+Accepted. Decision 1's placeholders closed and Consequences overtaken — see
+Amendment (2026-09-06).
+
+> **Amendment (2026-09-06).** The Decisions below still hold, including the
+> later-added 7 and 8. What has moved on:
+>
+> - **The 9 states are now 10.** `SAVE_AND_VERIFY_INVOICE` was added between
+>   `APPLY_AND_VERIFY_PAYMENT` and `DONE`; see `0008`. The current sequence
+>   is in `TODo.md`.
+> - **Decision 1's `# TODO probe` placeholders are all filled.** A later VM
+>   session pinned every selector in `orchestrator/config.py`, and the
+>   Consequences' claim that the workflow "will fail closed at
+>   `POPULATE_ORDER_FIELDS`/`ADD_ORDER_LINES`/`CREATE_AND_VERIFY_INVOICE`
+>   today" no longer applies — a full run reaches `DONE`, verified live
+>   (`TODo.md`, `Doc/implementation-notes.md`).
+>   `ORDER_CUSTOMER_FIELD_AUTO_ID` and `ORDER_PAYMENT_METHOD_FIELD_AUTO_ID`
+>   were deleted rather than filled, per Decision 7.
+> - **Decision 6's tests no longer exist.** `tests/orchestrator/` was
+>   emptied when the pywinauto-fake suite was removed; the state machine is
+>   verified live on the VM (`CLAUDE.md`'s test conventions). The
+>   Consequences' call for a live-VM smoke run was honoured — that is now
+>   the only verification this section has.
 
 ## Context
 
@@ -21,7 +42,7 @@ doc or the task description:
    entering a line into the order's own item grid, attaching an
    already-resolved Debtor/Payment Method to the order, creating the linked
    Invoice via Data > Documents, and applying payment - have no VM probe at
-   all (`TODo.md`'s debugging log), unlike every *read-back*
+   all (as of this ADR), unlike every *read-back*
    selector `verification/config.py` already pins.
 2. `run_workflow` must catch failures from every section it composes, not
    only its own; `entity_resolution`/`verification` raise
@@ -156,7 +177,7 @@ and a deliberately weaker match check.**
   alternative (matching by the Debtor's own unique No./Customer ID, which
   doesn't get clipped) needs `entity_resolution.debtor.resolve_debtor` to
   expose that identifier first, which is out of this task's scope - see
-  `TODo.md`'s Future work.
+  `README.md`'s Next Steps.
 - Separately (found while verifying the above, not part of the original
   gap): `entity_resolution.debtor`'s Company field needed
   `ui_automation.controls.type_text` (real keystrokes) instead of
@@ -192,7 +213,7 @@ left open - both fixed and confirmed live.**
   instant its search box narrows to exactly one matching row, entirely on
   its own - before this codebase's row-click-then-OK sequence ever runs.
   This looks identical, from the caller's side, to the flash-open-close
-  race Decision 7's session (and the history in `TODo.md`) already fixed
+  race Decision 7's session already fixed
   retries for: the dialog is unexpectedly gone and the next `find_control`
   call fails. But it is not the same event - it is a *successful* add, not
   a crash - and the old retry logic had no way to tell the two apart, so it
@@ -220,14 +241,16 @@ project's own "verify live on the VM" testing convention.
 
 ## Consequences
 
+*(Written before the VM probe session that closed them; see the Amendment
+under Status for what has since changed.)*
+
 - The Order-editor write actions gated on a VM probe
   (`ORDER_CUSTOMER_FIELD_AUTO_ID`, `ORDER_PAYMENT_METHOD_FIELD_AUTO_ID`,
   `ORDER_LINE_ADD_BUTTON_TITLE`, `INVOICE_FROM_ORDER_BUTTON_TITLE`,
   `INVOICE_EDITOR_PANE_NAME`) will fail closed against a real Fakturama
   window today, stopping at `POPULATE_ORDER_FIELDS`/`ADD_ORDER_LINES`/
   `CREATE_AND_VERIFY_INVOICE` respectively - this is expected, not a
-  regression, until a VM probe session fills them in (`TODo.md`'s "Not
-  started" section still applies).
+  regression, until a VM probe session fills them in.
 - Because the full happy path (reaching `WorkflowState.DONE`) is not
   exercised by a test, a future VM probe session that fills in the
   placeholders above should be paired with a live-VM smoke run of the CLI

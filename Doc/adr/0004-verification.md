@@ -2,7 +2,24 @@
 
 ## Status
 
-Accepted
+Accepted. Decision 3 and parts of Consequences overtaken — see Amendment
+(2026-09-06).
+
+> **Amendment (2026-09-06).** Decisions 1, 2, 4 and 5 still hold.
+>
+> - **Decision 3's placeholders are gone.** All six selectors
+>   (`ORDER_ITEMS_GRID_PANE_AUTO_ID`, `INVOICE_ITEMS_GRID_PANE_AUTO_ID`,
+>   `INVOICE_PAYMENT_METHOD_COMBO_NAME`, `INVOICE_PAID_CHECKBOX_NAME`,
+>   `INVOICE_PAYMENT_DATE_EDIT_NAME`, `INVOICE_PAYMENT_VALUE_EDIT_NAME`)
+>   were probed and pinned in a later VM session; nothing in
+>   `verification/config.py` is left as `""` with a `# TODO probe`. The
+>   fail-closed rationale for *why* they were placeholders stands as a
+>   record; the state it describes does not.
+> - The Invoice editor's field layout is no longer "assumed" — a full live
+>   run has read those fields back (`Doc/implementation-notes.md`).
+> - `verify_invoice_saved` was added later as its own state; see `0008`.
+> - Still open, unchanged: verification reads the open editor rather than
+>   `Data > Documents` (Task 4.5/5.5) — `TODo.md`'s Open list, item 1.
 
 ## Context
 
@@ -136,9 +153,9 @@ rollup.
   since no linked Invoice editor has been probed independently. This is a
   reasonable assumption (the Invoice is created directly from the Order
   in the same Eclipse RCP application - Task 4.6-4.7) but unconfirmed;
-  `Doc/Design.md`'s implementation notes and `TODo.md` flag it as an open
-  item for the next VM session, alongside the six placeholder selectors
-  from Decision 3.
+  `Doc/implementation-notes.md` and `TODo.md` flag it as an open item for
+  the next VM session, alongside the six placeholder selectors from
+  Decision 3. (Both since confirmed live - see the Amendment.)
 - Verifying via Data > Documents (Task 4.5/5.5's own prescribed check,
   distinct from reading the editor's internal fields) is not implemented
   in this pass - it would need its own vision-grounded grid read (like

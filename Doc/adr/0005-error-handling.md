@@ -30,8 +30,8 @@ nothing upstream dictated:
    ambiguous candidates, etc.)?
 
 The user's direction was explicit: take the simplest viable shape for both
-and push anything requiring materially more effort to `TODo.md`'s Future
-work, rather than over-build a section that has no orchestrator caller yet
+and push anything requiring materially more effort to `TODo.md`'s Open
+list, rather than over-build a section that has no orchestrator caller yet
 to exercise it end to end.
 
 ## Decisions
@@ -45,7 +45,7 @@ tailable by a human. The tradeoff - entries aren't individually
 "claimable"/deletable as a human works through them - is real but was
 judged acceptable for a queue with no consumer yet; a per-entry-file
 layout (each stuck order as its own movable/deletable artifact) is noted
-in `TODo.md`'s Future work if the single-file queue proves insufficient
+in `TODo.md`'s Open list if the single-file queue proves insufficient
 once a human/tool actually processes it.
 
 **2. `ManualReviewRequired` is left unextended; the entry captures only
@@ -61,7 +61,7 @@ consumer - the orchestrator - that doesn't exist yet), and a
 `Decimal`/`date`-aware JSON encoder for `NormalizedOrder`'s typed fields.
 That is a materially larger, riskier change than this section's own scope
 (implement the one remaining stub) justifies right now, so it is deferred
-(`TODo.md` Future work) rather than done speculatively.
+(`TODo.md`'s Open list) rather than done speculatively.
 
 As a forward-compatible hook that costs nothing today,
 `route_to_manual_review` reads `getattr(error, "details", None)` and
@@ -107,7 +107,7 @@ touch it.
   aggregates its own problems into one reason), but does not yet let a
   reviewer see the actual field values that were wrong without re-opening
   the source image. This is the explicit tradeoff of Decision 2, tracked
-  in `TODo.md`'s Future work rather than silently accepted.
+  in `TODo.md`'s Open list rather than silently accepted.
 - Because the `details` forwarding hook already exists, implementing the
   deferred richer-state capture later is additive (extend the exception,
   add an encoder, set `.details` at call sites) rather than requiring

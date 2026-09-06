@@ -10,6 +10,12 @@ requires-python = ">=3.11"
 dependencies = [
     # pywinauto's uia backend only works on Windows.
     "pywinauto>=0.6.8",
+    # ui_automation.app.FakturamaApp.top_level_window_by_title imports
+    # win32gui directly (pywinauto's own window enumeration does not
+    # reliably find Fakturama's "Select the address" dialog). Arrives
+    # transitively with pywinauto on Windows, but declared here because a
+    # module imports it directly.
+    "pywin32>=306",
     # Vision LLM extraction (Claude Haiku 4.5); cross-platform, needed for
     # extraction/normalization development off the Windows VM too.
     "anthropic>=0.69",

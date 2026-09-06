@@ -2,7 +2,19 @@
 
 ## Status
 
-Accepted
+Accepted. Consequences partly overtaken — see Amendment (2026-09-06).
+
+> **Amendment (2026-09-06).** The Decisions below still hold; the import
+> boundary is unchanged. Two statements in Consequences no longer describe
+> the repo:
+>
+> - `tests/ui_automation/test_controls.py` no longer exists. The duck-typed
+>   pywinauto-fake suite was removed as low-value; only `test_waits.py`
+>   remains from this section (`CLAUDE.md`'s test conventions). The claim
+>   that `controls.py` is "fully unit tested" describes the state at the
+>   time, not today — `controls.py` is now verified live on the VM.
+> - The probe output is at `probes/uia-output.txt`, not `Archieve/`
+>   (corrected inline below).
 
 ## Context
 
@@ -68,7 +80,8 @@ themselves.
 ## Consequences
 
 - `controls.py` and `waits.py` are fully unit tested on macOS
-  (`tests/ui_automation/test_controls.py`, `test_waits.py`), using fake
+  (`tests/ui_automation/test_controls.py` - since removed, see the
+  Amendment - and `test_waits.py`), using fake
   objects that implement only the three duck-typed methods above - no
   network, no real UI, no `pywinauto` import anywhere in the test files.
 - `app.py` and `spikes/uia_probe.py` have **no unit tests** - they cannot
@@ -77,7 +90,7 @@ themselves.
   `.top_window()`, `.window(...)`, `.print_control_identifiers()`).
   **Verified on the Windows 11 ARM VM (2026-09-04):** `spikes/uia_probe.py`
   against a running Fakturama window returned a rich, fully named control
-  tree on the first run (see `Archieve/uia-output.txt`) - no Java Access
+  tree on the first run (see `probes/uia-output.txt`) - no Java Access
   Bridge fallback needed. This was README's step-1 go/no-go gate; it passed,
   so `app.py`'s use of the same `Application(backend="uia")` API is no
   longer a live risk.
