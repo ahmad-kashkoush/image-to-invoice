@@ -53,11 +53,11 @@ def resolve_vat_rate(
             settle_seconds=settle_seconds,
         )
         matches = matching.exact_vat_matches(rows, vat_percent, read=lambda row: row[screens.VATS_SEARCH_COLUMNS[1]])
-        return [ResolvedEntity(identity=f"{vat_percent}%", created=False, element=row) for row in matches]
+        return [ResolvedEntity(identity=f"{vat_percent}%", created=False) for _ in matches]
 
     def create() -> ResolvedEntity:
-        element = _create_vat_rate(main_window, vat_percent)
-        return ResolvedEntity(identity=f"{vat_percent}%", created=True, element=element)
+        _create_vat_rate(main_window, vat_percent, settle_seconds=settle_seconds)
+        return ResolvedEntity(identity=f"{vat_percent}%", created=True)
 
     return resolver.resolve_exact_or_create(
         search_by, create, entity=f"VAT rate {vat_percent}%", step="resolve_vat_rate"
@@ -72,30 +72,47 @@ def _open_vats_list(main_window: Any) -> None:
     controls.find_control(main_window, "Text", name=screens.VATS_NAV_NAME).click_input()
 
 
-def _create_vat_rate(main_window: Any, vat_percent: Decimal) -> Any:
-    """Open the New TAX Rate form, fill its Name and Value fields, save.
+def _create_vat_rate(
+    main_window: Any,
+    vat_percent: Decimal,
+    *,
+    settle_seconds: float = config.SEARCH_SETTLE_SECONDS,
+) -> None:
+    """Open the New TAX Rate form, fill Name and Value, save, and
+    confirm the save took.
 
     Only Name and Value are filled - Category/Description/"VAT code
     (E-Invoice)" are optional and left at their defaults.
 
-    Selected by accessible NAME ("Name"/"Value"), not auto_id - neither
-    Edit is actually blank-named.
-
     Value is written with controls.replace_text, not type_text: it comes
-    pre-filled with "0%", and confirmed live that plain type_text (click +
-    type, no clear) inserts into that existing "0%" instead of replacing
-    it, so Fakturama silently saved the record with Value "0%" regardless
-    of what was typed. Every other field in this module starts out blank.
+    pre-filled with "0%", and plain type_text (click + type, no clear)
+    inserts into that existing "0%" instead of replacing it, so Fakturama
+    silently saved the record with Value "0%" regardless of what was typed.
+    Every other field in this module starts out blank.
+
+    This is the record whose silent mis-save started the worst bug in this
+    project's history, which is why the read-back below checks Value
+    numerically as well as Name: a rate saved as 0% is invisible to this
+    resolver's own next search, so every run created another duplicate.
     """
     controls.focus(main_window)
     controls.find_control(main_window, "Button", name=screens.VAT_NEW_BUTTON_TITLE).click_input()
 
-    name_edit = controls.find_control(main_window, "Edit", name=screens.VAT_NAME_EDIT_NAME)
-    name_edit.set_text(f"{vat_percent}%")
+    controls.find_control(main_window, "Edit", name=screens.VAT_NAME_EDIT_NAME).set_text(f"{vat_percent}%")
 
     value_edit = controls.find_control(main_window, "Edit", name=screens.VAT_VALUE_EDIT_NAME)
     controls.replace_text(value_edit, str(vat_percent))
 
     controls.focus(main_window)
     controls.find_control(main_window, "Button", name=screens.SAVE_BUTTON_TITLE).click_input()
-    return name_edit
+
+    resolver.verify_saved_fields(
+        main_window,
+        [
+            (screens.VAT_NAME_EDIT_NAME, f"{vat_percent}%", resolver.text_matches),
+            (screens.VAT_VALUE_EDIT_NAME, str(vat_percent), resolver.percent_matches),
+        ],
+        entity=f"VAT rate {vat_percent}%",
+        step="resolve_vat_rate",
+        settle_seconds=settle_seconds,
+    )

@@ -21,7 +21,14 @@ import anthropic
 
 from fakturama_automation.error_handling.exceptions import ManualReviewRequired
 from fakturama_automation.extraction import config
-from fakturama_automation.extraction.models import RawAddress, RawLineItem, RawOrder
+from fakturama_automation.extraction.models import (
+    ADDRESS_CONFIDENCE_FIELDS,
+    LINE_ITEM_CONFIDENCE_FIELDS,
+    ORDER_LEVEL_CONFIDENCE_FIELDS,
+    RawAddress,
+    RawLineItem,
+    RawOrder,
+)
 
 _MEDIA_TYPES = {
     ".png": "image/png",
@@ -29,28 +36,6 @@ _MEDIA_TYPES = {
     ".jpeg": "image/jpeg",
     ".webp": "image/webp",
 }
-
-ADDRESS_CONFIDENCE_FIELDS = ["street", "postal_code", "city", "country"]
-LINE_ITEM_CONFIDENCE_FIELDS = [
-    "sku",
-    "description",
-    "quantity",
-    "unit_net_price",
-    "vat_percent",
-    "discount",
-    "source_line_total",
-]
-ORDER_LEVEL_CONFIDENCE_FIELDS = [
-    "order_date",
-    "external_reference",
-    "debtor_company_name",
-    "contact_name",
-    "alias",
-    "payment_details",
-    "payment_method",
-    "payment_status",
-    "payment_date",
-]
 
 _ADDRESS_SCHEMA = {
     "type": "object",

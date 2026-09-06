@@ -13,12 +13,11 @@ partially-trustworthy order.
 from __future__ import annotations
 
 import datetime
-import re
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal
 
 from fakturama_automation.error_handling.exceptions import ManualReviewRequired
 from fakturama_automation.extraction.models import RawAddress, RawLineItem, RawOrder
-from fakturama_automation.normalization import config
+from fakturama_automation.normalization import config, parsing
 from fakturama_automation.normalization.models import NormalizedAddress, NormalizedLineItem, NormalizedOrder
 from fakturama_automation.normalization.validators import (
     check_confidence,
@@ -29,10 +28,10 @@ from fakturama_automation.normalization.validators import (
 # ISO first (the canonical format Fakturama and this pipeline standardize
 # on), with an unambiguous day-first fallback for the German-locale source
 # documents this system targets. Anything else fails closed rather than
-# being guessed (e.g. an ambiguous MM/DD vs DD/MM slash date).
+# being guessed (e.g. an ambiguous MM/DD vs DD/MM slash date). Deliberately
+# narrower than verification's list, which parses what a widget renders
+# rather than what a human wrote.
 _DATE_FORMATS = ["%Y-%m-%d", "%d.%m.%Y"]
-
-_CURRENCY_SYMBOLS = re.compile(r"[€$£]|\bEUR\b|\bUSD\b|\bGBP\b", re.IGNORECASE)
 
 
 def normalize_order(
@@ -120,43 +119,18 @@ def _parse_date(value: str | None, field_name: str, failures: list[str]) -> date
     text = _trim(value)
     if not text:
         return None
-    for fmt in _DATE_FORMATS:
-        try:
-            return datetime.datetime.strptime(text, fmt).date()
-        except ValueError:
-            continue
-    failures.append(f"{field_name}: unparseable date '{text}'")
-    return None
-
-
-def _normalize_numeric_text(text: str) -> str:
-    """Normalize a number's decimal/thousands separators to plain dot
-    notation. Handles dot-decimal (the source documents this system
-    targets), European comma-decimal (a defensive fallback for the German
-    Fakturama context), and thousands separators in either style.
-    """
-    cleaned = text.replace(" ", "").replace("\xa0", "")
-    if "," in cleaned and "." in cleaned:
-        # Whichever separator appears last is the decimal point; the other
-        # is a thousands separator, e.g. "1.234,56" (EU) or "1,234.56" (US).
-        if cleaned.rfind(",") > cleaned.rfind("."):
-            cleaned = cleaned.replace(".", "").replace(",", ".")
-        else:
-            cleaned = cleaned.replace(",", "")
-    elif "," in cleaned:
-        # Only a comma: treat it as the decimal separator (European style).
-        cleaned = cleaned.replace(",", ".")
-    return cleaned
+    parsed = parsing.parse_date_text(text, _DATE_FORMATS)
+    if parsed is None:
+        failures.append(f"{field_name}: unparseable date '{text}'")
+    return parsed
 
 
 def _parse_money(value: str | None, field_name: str, failures: list[str]) -> Decimal:
     text = _trim(value)
     if not text:
         return Decimal(0)
-    cleaned = _normalize_numeric_text(_CURRENCY_SYMBOLS.sub("", text).strip())
-    try:
-        parsed = Decimal(cleaned)
-    except InvalidOperation:
+    parsed = parsing.parse_money_text(text)
+    if parsed is None:
         failures.append(f"{field_name}: unparseable number '{text}'")
         return Decimal(0)
     return parsed.quantize(config.MONEY_QUANTIZE, rounding=ROUND_HALF_UP)
@@ -166,9 +140,13 @@ def _parse_percent(value: str | None, field_name: str, failures: list[str]) -> D
     text = _trim(value)
     if not text:
         return Decimal(0)
-    cleaned = _normalize_numeric_text(text.replace("%", "").strip())
-    try:
-        return Decimal(cleaned)
-    except InvalidOperation:
+    # Not parsing.parse_percent_text: that searches for a "<number>%"
+    # pattern anywhere, which is right for a dropdown label but wrong for a
+    # document field - "abc 19%" is a misread here, not a percentage.
+    parsed = parsing.parse_decimal(
+        parsing.normalize_decimal_separators(parsing.strip_spaces(text.replace("%", "")))
+    )
+    if parsed is None:
         failures.append(f"{field_name}: unparseable percentage '{text}'")
         return Decimal(0)
+    return parsed

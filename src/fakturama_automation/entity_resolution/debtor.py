@@ -46,11 +46,11 @@ def resolve_debtor(
             settle_seconds=settle_seconds,
         )
         matches = matching.exact_text_matches(rows, company_name, read=lambda row: row[screens.DEBTORS_SEARCH_COLUMNS[0]])
-        return [ResolvedEntity(identity=company_name, created=False, element=row) for row in matches]
+        return [ResolvedEntity(identity=company_name, created=False) for _ in matches]
 
     def create() -> ResolvedEntity:
-        element = _create_debtor(main_window, order, client=client, settle_seconds=settle_seconds)
-        return ResolvedEntity(identity=company_name, created=True, element=element)
+        _create_debtor(main_window, order, client=client, settle_seconds=settle_seconds)
+        return ResolvedEntity(identity=company_name, created=True)
 
     return resolver.resolve_exact_or_create(
         search_by, create, entity=f"debtor '{company_name}'", step="resolve_debtor"
@@ -73,14 +73,9 @@ def _create_debtor(
     *,
     client: Any = None,
     settle_seconds: float = config.SEARCH_SETTLE_SECONDS,
-) -> Any:
-    """Open the New Debtor form, fill it from the normalized order, save.
-
-    Returns the Company edit control as the resolved record's `element` (a
-    stable, re-findable reference; the editor tab/pane itself is
-    unsuitable since its title and auto_id both change once data is
-    entered). `client` is the injectable vision client for reading the
-    Country combo's real options.
+) -> None:
+    """Open the New Debtor form, fill it from the normalized order,
+    save, and confirm the save took.
 
     `settle_seconds` is used once, after Street: setting ZIP/City
     immediately after Street raises a persistent COMError that
@@ -88,6 +83,12 @@ def _create_debtor(
     rebuilds the row's widgets out from under the already-fetched wrapper -
     a fresh lookup moments later finds a live Edit, so this settles before
     the ZIP/City lookup starts rather than retrying a stale reference.
+
+    The read-back at the end checks Company specifically because that is
+    the field that failed: set_text() read back correctly right up until
+    the Save click, then came back empty every time. It is also the key
+    every later lookup of this Debtor matches on, so a Company that did not
+    persist makes the record unfindable.
     """
     controls.focus(main_window)
     controls.find_control(main_window, "Button", name=screens.DEBTOR_NEW_BUTTON_TITLE).click_input()
@@ -95,8 +96,10 @@ def _create_debtor(
     # type_text (real keystrokes), not set_text: set_text() silently fails
     # to persist this field through Save (see controls.type_text) - every
     # other field below keeps using set_text(), which works fine for them.
-    company_edit = controls.find_control(main_window, "Edit", name=screens.DEBTOR_COMPANY_EDIT_NAME)
-    controls.type_text(company_edit, order.debtor_company_name)
+    controls.type_text(
+        controls.find_control(main_window, "Edit", name=screens.DEBTOR_COMPANY_EDIT_NAME),
+        order.debtor_company_name,
+    )
 
     if order.contact_name:
         first_name, _, last_name = order.contact_name.partition(" ")
@@ -138,4 +141,11 @@ def _create_debtor(
 
     controls.focus(main_window)
     controls.find_control(main_window, "Button", name=screens.SAVE_BUTTON_TITLE).click_input()
-    return company_edit
+
+    resolver.verify_saved_fields(
+        main_window,
+        [(screens.DEBTOR_COMPANY_EDIT_NAME, order.debtor_company_name, resolver.text_matches)],
+        entity=f"debtor '{order.debtor_company_name}'",
+        step="resolve_debtor",
+        settle_seconds=settle_seconds,
+    )

@@ -27,6 +27,7 @@ the refactor; re-running it is Open item 1.**
 | 6 | Error Handling | `error_handling/` | `manual_review.py`, `exceptions.py`, `config.py` | 0005 |
 | 7 | Orchestrator | `orchestrator/` | `state_machine.py`, `actions.py`, `config.py`, `__main__.py` | 0007 |
 | 7b | `SAVE_AND_VERIFY_INVOICE` (tenth state) | `orchestrator/`, `verification/` | `state_machine.py`, `actions.py::save_invoice`, `invoice_verification.py::verify_invoice_saved`, `payment_verification.py::payment_problems` | 0008 |
+| 9 | P1 refactor: one parser, real LLM boundary, verified creation | all | new `normalization/parsing.py`, `ui_automation/readers.py`, `tests/ui_automation/test_grid_geometry.py`; deleted `verification/{readback,config}.py` and `matching.parse_vat_text`; `entity_resolution/*` read every created record back; `combos.py` verifies the click; `state_machine.py` + `__main__.py` gain logging and `--dry-run` | 0010 (amends 0003, 0004) |
 | 8 | P0 refactor: dependency direction, one selector home, honest states | all | new `ui_automation/screens.py` + `locators.py`; `actions.py` → `orchestrator/steps/{order_editor,invoice_editor,items_grid,pickers,toolbar}.py`; `__main__.py` (exit code), `state_machine.py`, `normalization/models.py` (computed `recomputed_total`, `is_paid`), `ui_automation/{exceptions,vision_grounding,grid_geometry,controls}.py`, all three `config.py` trimmed to tunables | 0009 (amends 0004, 0007, 0008) |
 
 Notes worth keeping in one place:
@@ -34,6 +35,13 @@ Notes worth keeping in one place:
 - **Selectors:** every Fakturama control identifier lives in
   `ui_automation/screens.py`, by screen, and nothing else declares one. Each
   package's `config.py` holds only timeouts/retry counts.
+- **Dependency rule:** `ui_automation` imports nothing from this project;
+  `verification` and `entity_resolution` are peers that never import each
+  other; `normalization` reaches only `extraction.models`. Checkable by grep,
+  and worth checking - three of these four edges existed and were invisible.
+- **Parsing:** one home (`normalization/parsing.py`) for the separator rule.
+  The *compositions* stay per-caller on purpose: document text, widget text
+  and dropdown labels are different input spaces.
 - **Workflow states:** `EXTRACT → NORMALIZE → OPEN_ORDER →
   POPULATE_ORDER_FIELDS → ADD_ORDER_LINES → VALIDATE_ORDER →
   SAVE_AND_VERIFY_ORDER → CREATE_AND_VERIFY_INVOICE →
@@ -51,15 +59,22 @@ Notes worth keeping in one place:
 
 ## Open
 
-1. **Re-run the golden sample order live, post-refactor.** The P0 pass (ADR
-   0009) touched every package. It is verified by import/compile of the whole
+1. **Re-run the golden sample order live, post-refactor.** The P0 and P1
+   passes (ADRs 0009, 0010) touched every package. It is verified by import/compile of the whole
    tree, by the failure path end to end (exit code 1 + queue entry), and by
    the vision-read column lists coming out byte-identical — but nothing there
    touches a real Fakturama window, and per `CLAUDE.md` nothing that does can
    be unit tested. Run on a clean profile (exercises every create path) and on
    a populated one (every match path). `VALIDATE_ORDER` now reads the UI and
    can stop an order that previously passed: a stop there must be reproduced
-   and explained, not worked around.
+   and explained, not worked around. P1 added three more ways to stop that
+   did not exist before: a created Debtor/Product/VAT/payment-method record
+   that does not read back correctly, and a combo selection that does not
+   take. The combo check is the riskiest - if Fakturama renders a selected
+   value in a form the selecting predicate rejects, every product creation
+   fails closed, and the fix is to widen the comparison rather than remove
+   the check. `--dry-run` covers the extraction/normalization half without a
+   VM at all.
 2. **`Data > Documents` is unprobed** — the one screen with no VM probe at
    all. Tasks 4.5/5.5 prescribe it as an independent second check on the
    saved Order and Invoice; verification currently reads the open editor's
@@ -85,10 +100,11 @@ Notes worth keeping in one place:
    append-only `out/manual_review_queue.jsonl` proves insufficient once a
    human or tool actually processes entries — there's no claim/delete
    workflow today. ADR 0005's Consequences.
-6. **VM verification for `combos.py`'s two coordinate-click assumptions**
-   (not blocking — both fail closed): that screenshot pixels map 1:1 to
-   screen coordinates (no DPI scaling), and that a dropdown renders inside
-   `main_window`'s rectangle. ADR 0006.
+6. **VM verification for `combos.py`'s two coordinate-click assumptions**:
+   that screenshot pixels map 1:1 to screen coordinates (no DPI scaling), and
+   that a dropdown renders inside `main_window`'s rectangle. ADR 0006. The
+   first no longer fails silently — the selection is read back (ADR 0010) —
+   but the assumption itself is still unverified.
 7. **Country-code → name mapping** for the Debtor Country combo: if
    Fakturama's options are full names ("Germany") while normalized data
    holds an ISO code ("DE"), `select_exact_option` fails closed to manual

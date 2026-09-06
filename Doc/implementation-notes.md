@@ -114,3 +114,61 @@ that needed a fuller write-up have their own ADR under [adr/](adr/).
   money is recorded as received existed as two independent copies of
   `.strip().upper() == "PAID"`, one at the site that writes payment and one at
   the site that verifies it.
+
+## P1 refactor — the checks that were easy to state and hard to trust (2026-09-06)
+
+- **Merging three parsers is the kind of change that looks free and isn't.**
+  The separator rule (`"1.234,56"` vs `"1,234.56"`) existed in three copies,
+  and they were *near*-identical, not identical: two stripped whitespace
+  before parsing and one did not, because it reads dropdown text where
+  `"1 9"` must not become 19. One searched for `<number>%` anywhere, which is
+  right for a label like `"VAT 19 (19%)"` and wrong for a document field
+  where `"abc 19%"` is a misread. So what got shared is the *primitives*, and
+  each caller still composes its own cleaning explicitly. The way this was
+  settled was a differential harness that reimplemented all three originals
+  verbatim and compared them against the new compositions over 40 inputs -
+  160 comparisons, zero differences. Worth the twenty minutes: two of the
+  four differences it would have caught were ones the plan had already
+  predicted in prose and would still have been easy to get wrong in code.
+- **Moving constants was not enough to break the LLM dependency.**
+  `validators.py` importing three field lists from `vision_extractor.py` was
+  the obvious coupling, and moving them to `extraction/models.py` looked like
+  the fix. It wasn't: importing `extraction.models` runs
+  `extraction/__init__.py`, which imported the vision adapter, which imports
+  `anthropic`. The stated property ("normalization does not depend on the LLM
+  SDK") was still false, and would have stayed false and unnoticed - the
+  package layout hid it. `extract_order` now imports its implementation
+  modules inside the function, the same deferred-import shape the pywinauto
+  boundary already uses. Confirmed by blocking `anthropic` through
+  `sys.meta_path` and running the domain layer with it genuinely absent,
+  rather than by reading imports.
+- **A test you have not run is not a deliverable.** The new
+  `grid_geometry` fixture is synthetic - a grid drawn to the structure the
+  algorithm expects, since capturing a real one needs the VM. Two things it
+  took to make that worth committing. First, running it: the assertions were
+  written from reasoning about the algorithm, and reasoning about pixel
+  lattices is exactly where an off-by-one hides. Second, a mutation check -
+  perturbing each of the six tuned constants and seeing which tests notice.
+  That found two real weaknesses: `_LINE_THRESHOLD` was pinned from only one
+  side (a fixture drawn at 250 stays undetected whether the threshold is 235
+  or 120), and the scrolled-grid test was passing for the wrong reason - it
+  tripped the column-count check, whose message happens to mention scrolling
+  too, and never exercised the left-edge check at all. Both fixed; five of
+  six constants are now detected when perturbed.
+- **The riskiest change in this pass is the smallest.** Reading a combo back
+  after clicking it is four lines, and it closes the last mutation with no
+  act/verify pair. But it can only be validated live: if Fakturama renders a
+  selected value in a form the selecting predicate rejects, every product
+  creation now fails closed on a path that previously worked. That is why the
+  check reuses the *same callable* that chose the option rather than
+  comparing text - it tolerates the widget re-rendering what it shows - and
+  why the note to the next person is that a misfire means widening the
+  comparison, not deleting the check.
+- **`ResolvedEntity` earned its place by being consumed, not by being
+  argued for.** ADR 0003 justified it on the grounds that "the manual-review
+  log cares about" whether a record was matched or created; nothing ever read
+  it. The full connection it was designed for - matching a Debtor by Customer
+  ID - still needs a probe nobody has taken. What made it real was smaller:
+  the run log now says "matched existing debtor 'X'" or "created product SKU
+  'Y'", which is the distinction the ADR named, and `element` (the part with
+  no consumer at all) is gone.

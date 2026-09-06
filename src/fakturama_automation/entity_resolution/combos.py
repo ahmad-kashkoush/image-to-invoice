@@ -15,6 +15,12 @@ matched option's own screen coordinate instead of selecting it via UIA.
 Selection is exact-match only, fail-closed: zero or more than one option
 matching the target raises ManualReviewRequired naming every option the
 dropdown actually offered, never guessing a format or picking the first hit.
+
+The click is then verified by reading the combo back, because clicking a
+coordinate derived from a screenshot assumes those pixels map 1:1 to screen
+coordinates - which is false under DPI scaling, and would leave the combo
+silently on its previous value. This was the last mutation in the codebase
+with no act/verify pair.
 """
 
 from __future__ import annotations
@@ -23,9 +29,10 @@ import time
 from decimal import Decimal
 from typing import Any, Callable
 
-from fakturama_automation.entity_resolution import config, matching
+from fakturama_automation.entity_resolution import config
 from fakturama_automation.error_handling.exceptions import ManualReviewRequired
-from fakturama_automation.ui_automation import controls, vision_grounding
+from fakturama_automation.normalization.parsing import parse_percent_text
+from fakturama_automation.ui_automation import controls, readers, vision_grounding
 from fakturama_automation.ui_automation.vision_grounding import ComboOption
 
 
@@ -50,20 +57,26 @@ def select_vat_option(
     settle_seconds: float = config.SEARCH_SETTLE_SECONDS,
 ) -> None:
     """Open `combo`'s dropdown and click the option whose VAT percent
-    (parsed numerically via matching.parse_vat_text, so "19", "19.00", and
-    "19,00 %" all match Decimal("19")) equals `vat_percent`.
+    (parsed numerically, so "19", "19.00" and "19,00 %" all match
+    Decimal("19")) equals `vat_percent`.
 
     Raises ManualReviewRequired if no option, or more than one, matches.
     """
+    def wanted(text: str) -> bool:
+        return parse_percent_text(text) == vat_percent
+
     options = _read_open_combo_options(main_window, combo, client=client, settle_seconds=settle_seconds)
-    match = pick_option(options, match=lambda text: matching.parse_vat_text(text) == vat_percent)
+    match = pick_option(options, match=wanted)
     if match is None:
         raise ManualReviewRequired(
             step,
             f"no unique VAT option matching {vat_percent}%; options were "
             f"{[option.text for option in options]!r}",
         )
-    _click_option(main_window, match)
+    _click_and_confirm(
+        main_window, combo, match, wanted=wanted, target=f"{vat_percent}%",
+        step=step, settle_seconds=settle_seconds,
+    )
 
 
 def select_exact_option(
@@ -84,17 +97,23 @@ def select_exact_option(
     combo's real options are full country names ("Germany"): that's
     correctly treated as "no match", not silently skipped or guessed.
     """
+    def wanted(text: str) -> bool:
+        return text == target
+
     options = _read_open_combo_options(
         main_window, combo, client=client, type_ahead=target, settle_seconds=settle_seconds
     )
-    match = pick_option(options, match=lambda text: text == target)
+    match = pick_option(options, match=wanted)
     if match is None:
         raise ManualReviewRequired(
             step,
             f"no unique option matching '{target}'; options were "
             f"{[option.text for option in options]!r}",
         )
-    _click_option(main_window, match)
+    _click_and_confirm(
+        main_window, combo, match, wanted=wanted, target=target,
+        step=step, settle_seconds=settle_seconds,
+    )
 
 
 def _read_open_combo_options(
@@ -133,23 +152,47 @@ def _read_open_combo_options(
     return vision_grounding.read_combo_options(image_bytes, client=client)
 
 
-def _click_option(main_window: Any, option: ComboOption) -> None:
-    """Convert `option.bbox` (pixel coords within the main_window
-    screenshot) to an absolute screen point (main_window's own top-left +
-    the bbox's center) and click there.
+def _click_and_confirm(
+    main_window: Any,
+    combo: Any,
+    option: ComboOption,
+    *,
+    wanted: Callable[[str], bool],
+    target: str,
+    step: str,
+    settle_seconds: float,
+) -> None:
+    """Click the matched option, then read the combo back and confirm
+    it took.
 
-    Assumes the screenshot's pixels map 1:1 to screen coordinates (no DPI
-    scaling) - unverified until tried against a live window; see
-    .claude/plans/entity-resolution-residual.md's "known limitations".
+    The click converts `option.bbox` (pixel coords within the main_window
+    screenshot) to an absolute screen point, which assumes those pixels map
+    1:1 to screen coordinates - false under DPI scaling, and a mis-scaled
+    click lands somewhere harmless and leaves the combo on its previous
+    value with nothing raised. The read-back is what turns that from a
+    silent wrong result into a stop.
 
-    Calls controls.focus(main_window) immediately before the click:
-    omitting this let every product's VAT combo selection silently fail
-    (confirmed live - the combo stayed on its prior value) since
-    read_combo_options just above is a real network call, long enough for
-    OS foreground focus to drift away from Fakturama in between.
+    It is verified with the same predicate that chose the option, so the
+    check means "the combo now holds something satisfying what was asked
+    for" rather than assuming the widget echoes the dropdown row verbatim.
+
+    controls.focus(main_window) immediately before the click: omitting it
+    let every product's VAT selection silently fail (confirmed live), since
+    the vision read beforehand is a real network call, long enough for OS
+    foreground focus to drift away from Fakturama.
     """
     controls.focus(main_window)
     bounds = main_window.rectangle()
     x, y, width, height = option.bbox
     screen_point = (bounds.left + x + width // 2, bounds.top + y + height // 2)
     main_window.click_input(coords=screen_point, absolute=True)
+
+    time.sleep(settle_seconds)
+    selected = readers.field_value(combo)
+    if not wanted(selected):
+        raise ManualReviewRequired(
+            step,
+            f"selected the '{option.text}' option for {target}, but the combo reads back as "
+            f"'{selected}' - the click did not take (screenshot pixels may not map 1:1 to "
+            "screen coordinates under DPI scaling)",
+        )

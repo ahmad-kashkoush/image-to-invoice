@@ -51,6 +51,17 @@ from.
 .venv\Scripts\python -m fakturama_automation.orchestrator <image_path>
 ```
 
+The run logs each step it enters, and exits non-zero if it stops for manual
+review. `--quiet` reduces it to the outcome.
+
+To check extraction and normalization without Fakturama running — on any
+machine, Windows or not — add `--dry-run`: it prints the normalized record
+and stops before touching the UI.
+
+```powershell
+.venv\Scripts\python -m fakturama_automation.orchestrator --dry-run Assets\image.png
+```
+
 Or activate the environment first (`.venv\Scripts\Activate.ps1`) and drop the
 `.venv\Scripts\` prefix.
 
@@ -60,6 +71,7 @@ Or activate the environment first (`.venv\Scripts\Activate.ps1`) and drop the
 ├── src/fakturama_automation/    the installable package
 │   ├── extraction/              vision-LLM read of the order image
 │   ├── normalization/           raw text → typed, validated values
+│   │                            (parsing.py: the one separator rule)
 │   ├── entity_resolution/       exact-match search-then-create for master data
 │   ├── ui_automation/           pywinauto uia wrapper: locate, act, poll
 │   │                            (screens.py: every selector, by screen)
@@ -115,8 +127,8 @@ If I have 3 more hours, I'll work on the following:
 #### Hardening
 
 * **Debtor matching does not follow task 2.3.** It currently relies on Fakturama's search returning exactly one row rather than verifying all five fields → Have `resolve_debtor` return the Customer ID (the `ResolvedEntity` it already builds is discarded by every caller) and match on it, which the Company column's clipping makes impossible today.
-* **Master-data creation is the one mutation with no verification.** Order save, Invoice creation, payment and Invoice save each read back; creating a Debtor/Product/VAT rate/Payment Method does not → Read the record back after Save, per task 2.12/3.12.
-* **Refactoring.** The P0 pass is done (`Doc/adr/0009`, `.claude/plans/refactoring-architecture-review.md`); P1 remains — one parsing module instead of three near-copies, and a golden-PNG test for `ui_automation/grid_geometry.py`.
+* **Master data is verified from its own saved form, not by re-searching the list.** Task 2.12/3.12 prescribe reopening the picker and finding the new record → Re-search after creation, which additionally proves the record is reachable by the key later lookups use.
+* **`grid_geometry`'s test fixture is synthetic.** It pins the algorithm's contract but not its agreement with Fakturama's real rendering → Commit a real Items-grid screenshot on the next VM session.
 
 #### Nice to have requirements
 

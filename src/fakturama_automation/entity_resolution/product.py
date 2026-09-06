@@ -49,12 +49,12 @@ def resolve_product(
             settle_seconds=settle_seconds,
         )
         matches = matching.exact_text_matches(rows, sku, read=lambda row: row[screens.PRODUCTS_SEARCH_COLUMNS[0]])
-        return [ResolvedEntity(identity=sku, created=False, element=row) for row in matches]
+        return [ResolvedEntity(identity=sku, created=False) for _ in matches]
 
     def create() -> ResolvedEntity:
         resolve_vat_rate(app, item.vat_percent, client=client)
-        element = _create_product(main_window, item, client=client)
-        return ResolvedEntity(identity=sku, created=True, element=element)
+        _create_product(main_window, item, client=client, settle_seconds=settle_seconds)
+        return ResolvedEntity(identity=sku, created=True)
 
     return resolver.resolve_exact_or_create(
         search_by, create, entity=f"product SKU '{sku}'", step="resolve_product"
@@ -69,28 +69,21 @@ def _open_products_list(main_window: Any) -> None:
     controls.find_control(main_window, "Text", name=screens.PRODUCTS_NAV_NAME).click_input()
 
 
-def _create_product(main_window: Any, item: NormalizedLineItem, *, client: Any = None) -> Any:
-    """Open the New Product form, fill it from the normalized line item,
-    select its VAT rate, and save. Returns the SKU edit control as the
-    resolved record's `element` (the editor tab/pane's own title and
-    auto_id are unstable once data is entered).
+def _create_product(
+    main_window: Any,
+    item: NormalizedLineItem,
+    *,
+    client: Any = None,
+    settle_seconds: float = config.SEARCH_SETTLE_SECONDS,
+) -> None:
+    """Open the New Product form, fill it from the normalized line
+    item, select its VAT rate, save, and confirm the save took.
 
-    `client` is the injectable vision client for reading the VAT combo's
-    real options.
-
-    Item Number, Name, and the VAT combo are selected by accessible NAME,
-    not auto_id (auto_ids are session-unstable). Price (gross) is
-    blank-named, so it's located structurally instead - the Edit inside
-    the Pane immediately following the "Price (gross)" Text in their
-    shared parent, the same sibling-Pane pattern debtor.py uses.
-
-    That price field is GROSS, and the line item's price is net, so the
+    The price field is GROSS while the line item's price is net, so the
     value typed is converted first (validators.gross_from_net). Writing the
-    net figure straight in - the previous behavior - made Fakturama derive
-    a net price of net / (1 + VAT) for every Order line built from this
-    record: confirmed live, a 250.00 net chair became $210.08 a unit and
-    $378.15 for two, with nothing raising an error until final
-    verification.
+    net figure straight in made Fakturama derive net / (1 + VAT) for every
+    Order line built from the record: a 250.00 net chair became $210.08 a
+    unit, with nothing raising until final verification.
 
     Every field is filled via controls.type_text (real keystrokes), not
     set_text(): set_text() can silently fail to persist a freshly-created
@@ -100,8 +93,9 @@ def _create_product(main_window: Any, item: NormalizedLineItem, *, client: Any =
     controls.focus(main_window)
     controls.find_control(main_window, "Button", name=screens.PRODUCT_NEW_BUTTON_TITLE).click_input()
 
-    sku_edit = controls.find_control(main_window, "Edit", name=screens.PRODUCT_SKU_EDIT_NAME)
-    controls.type_text(sku_edit, item.sku)
+    controls.type_text(
+        controls.find_control(main_window, "Edit", name=screens.PRODUCT_SKU_EDIT_NAME), item.sku
+    )
 
     if item.description:
         controls.type_text(controls.find_control(main_window, "Edit", name=screens.PRODUCT_NAME_EDIT_NAME), item.description)
@@ -122,4 +116,14 @@ def _create_product(main_window: Any, item: NormalizedLineItem, *, client: Any =
 
     controls.focus(main_window)
     controls.find_control(main_window, "Button", name=screens.SAVE_BUTTON_TITLE).click_input()
-    return sku_edit
+
+    # The SKU is what every later lookup of this product matches on, so a
+    # SKU that did not persist makes the record unfindable and the next run
+    # creates a duplicate.
+    resolver.verify_saved_fields(
+        main_window,
+        [(screens.PRODUCT_SKU_EDIT_NAME, item.sku, resolver.text_matches)],
+        entity=f"product SKU '{item.sku}'",
+        step="resolve_product",
+        settle_seconds=settle_seconds,
+    )

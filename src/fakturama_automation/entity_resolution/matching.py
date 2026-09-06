@@ -13,16 +13,10 @@ resolver.py, never silently matched to the wrong record.
 
 from __future__ import annotations
 
-import re
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any, Callable
 
-# Mirrors normalization.normalizer's locale-tolerant number parsing so a VAT
-# rate read back from the UI ("19 %", "19,00 %") compares equal to the
-# Decimal produced by normalization. Also matches a number embedded with a
-# "%" elsewhere in the text (the Order editor's VAT dropdown names each
-# option "{Name} ({Value}%)", not a bare value).
-_VAT_NUMBER_WITH_PERCENT = re.compile(r"([\d.,]+)\s*%")
+from fakturama_automation.normalization.parsing import parse_percent_text
 
 
 def _default_read(row: Any) -> str:
@@ -71,40 +65,7 @@ def exact_vat_matches(
     """
     matches = []
     for row in rows:
-        parsed = parse_vat_text(read(row))
+        parsed = parse_percent_text(read(row))
         if parsed is not None and parsed == vat_percent:
             matches.append(row)
     return matches
-
-
-def parse_vat_text(text: str) -> Decimal | None:
-    """Parse a VAT percent read back from Fakturama's UI ("19 %",
-    "19,00 %", a bare "19", or a number embedded elsewhere in the text
-    like "abc (20.0%)") to a Decimal, or None if it doesn't parse.
-
-    Public (not module-private) so other modules needing the same
-    VAT-text parsing (e.g. a future ComboBox-option reader) reuse this one
-    implementation rather than re-deriving it - CLAUDE.md's "keep this
-    formula in exactly one place" rule applied to VAT-text parsing, not
-    just the line total formula.
-
-    Tries to find a "<number>%" pattern anywhere in the text first (so a
-    prefixed name, as the Order editor's own line-item VAT dropdown uses,
-    doesn't prevent a match); falls back to treating the whole (trimmed)
-    text as the number, for a bare value with no "%" at all.
-    """
-    match = _VAT_NUMBER_WITH_PERCENT.search(text)
-    cleaned = match.group(1) if match is not None else text.strip()
-    if not cleaned:
-        return None
-    if "," in cleaned and "." in cleaned:
-        if cleaned.rfind(",") > cleaned.rfind("."):
-            cleaned = cleaned.replace(".", "").replace(",", ".")
-        else:
-            cleaned = cleaned.replace(",", "")
-    elif "," in cleaned:
-        cleaned = cleaned.replace(",", ".")
-    try:
-        return Decimal(cleaned)
-    except InvalidOperation:
-        return None

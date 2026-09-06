@@ -1,31 +1,26 @@
 """Pure comparisons between a NormalizedOrder and text read back from the UI.
 
 Bridges the type gap between normalization's typed values (Decimal money/
-percent, datetime.date) and what ui_automation/vision_grounding actually
-return: plain strings. Pure functions, no UI/network.
+percent, datetime.date) and what ui_automation returns: plain strings. Pure
+functions, no UI/network.
 
-Money and percent parsing here mirror normalization.normalizer's locale-
-tolerant parsing but are written independently rather than importing
-normalizer's module-private parser - each section keeps its own small
-copy, the same choice entity_resolution.matching.parse_vat_text made.
+Number parsing comes from normalization.parsing, shared with the normalizer
+rather than re-derived here. Only the accepted *date formats* are this
+module's own, because they are a policy choice: this parses what a widget
+renders, not what a human wrote.
 """
 
 from __future__ import annotations
 
 import datetime
-import re
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal
 
-from fakturama_automation.entity_resolution.matching import parse_vat_text
+from fakturama_automation.normalization import parsing
 from fakturama_automation.normalization.config import MONEY_QUANTIZE
 from fakturama_automation.normalization.models import NormalizedLineItem, NormalizedOrder
 from fakturama_automation.ui_automation import screens
 
-_CURRENCY_SYMBOLS = re.compile(r"[€$£]|\bEUR\b|\bUSD\b|\bGBP\b", re.IGNORECASE)
-
-# Mirrors normalization.normalizer's date parsing: ISO first, with an
-# unambiguous day-first fallback. Anything else does not parse (fails
-# closed), consistent with CLAUDE.md's parsing conventions.
+# ISO first, with an unambiguous day-first fallback, as the normalizer has.
 #
 # The month-name forms are here because this parses text the UI *renders*,
 # not text a human wrote: the Invoice's payment-date widget is written as
@@ -45,24 +40,10 @@ _DATE_FORMATS = [
 
 
 def parse_money_text(text: str) -> Decimal | None:
-    """Parse a monetary value read back from Fakturama's UI to a Decimal,
-    or None if it doesn't parse (an unparseable read is never treated as
-    a match - fail closed).
+    """Parse a monetary value read back from Fakturama's UI, or None if
+    it doesn't parse (an unparseable read is never treated as a match).
     """
-    cleaned = _CURRENCY_SYMBOLS.sub("", text).strip().replace(" ", "").replace("\xa0", "")
-    if not cleaned:
-        return None
-    if "," in cleaned and "." in cleaned:
-        if cleaned.rfind(",") > cleaned.rfind("."):
-            cleaned = cleaned.replace(".", "").replace(",", ".")
-        else:
-            cleaned = cleaned.replace(",", "")
-    elif "," in cleaned:
-        cleaned = cleaned.replace(",", ".")
-    try:
-        return Decimal(cleaned)
-    except InvalidOperation:
-        return None
+    return parsing.parse_money_text(text)
 
 
 def money_equals(expected: Decimal, ui_text: str, *, tolerance: Decimal = Decimal("0.01")) -> bool:
@@ -81,12 +62,10 @@ def percent_equals(expected: Decimal, ui_text: str) -> bool:
     """Compare a normalized percentage (VAT or discount - both plain
     numbers per CLAUDE.md's parsing conventions) against UI text.
 
-    Reuses entity_resolution.matching.parse_vat_text: VAT-percent parsing
-    and discount-percent parsing are the same locale-tolerant "strip a
-    trailing %, then parse" operation, so both use this one function
-    rather than a second near-duplicate.
+    VAT-percent and discount-percent parsing are the same operation, so
+    both go through normalization.parsing rather than a near-duplicate.
     """
-    parsed = parse_vat_text(ui_text)
+    parsed = parsing.parse_percent_text(ui_text)
     if parsed is None:
         return False
     return parsed == expected
@@ -106,15 +85,7 @@ def parse_ui_date(text: str) -> datetime.date | None:
     convention; an ambiguous or unrecognized format fails closed (None),
     never guessed.
     """
-    stripped = text.strip()
-    if not stripped:
-        return None
-    for fmt in _DATE_FORMATS:
-        try:
-            return datetime.datetime.strptime(stripped, fmt).date()
-        except ValueError:
-            continue
-    return None
+    return parsing.parse_date_text(text, _DATE_FORMATS)
 
 
 def date_equals(expected: datetime.date | None, ui_text: str) -> bool:

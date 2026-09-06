@@ -32,6 +32,18 @@ Accepted. Decision 3 and parts of Consequences overtaken — see Amendment
 > Decision 5 (`order_level_totals` derived once, shared) is unchanged, and
 > `verify_order_before_save` now reuses the same `_field_problems` helper for
 > the pre-save check Task 4.3 asks for.
+>
+> **Amendment (2026-09-06, P1) — see `0010`.** Decision 4 is superseded.
+> It chose to re-derive money/percent parsing here rather than share
+> normalization's, on the grounds that each section owns its own read-back
+> parsing. The *distinction* holds — this module parses what a widget
+> renders, and its date-format list is still its own for exactly that reason
+> — but the separator rule itself was one algorithm in three copies, and is
+> now `normalization.parsing`. That also removes this package's import of
+> `entity_resolution`, which the Decision's own "reuse parse_vat_text
+> directly" clause had introduced. `readback.py` and `config.py` are gone:
+> reading a control back is `ui_automation.readers`, not a verification
+> concern.
 
 ## Context
 

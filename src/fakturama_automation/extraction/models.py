@@ -27,6 +27,33 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+# Which fields each raw model carries a confidence for. Here rather than in
+# vision_extractor.py because they describe these shapes, not the API call
+# that happens to fill them - and because validators.check_confidence reads
+# them, which would otherwise pull the Anthropic SDK into the import chain
+# of every module that validates an order.
+ADDRESS_CONFIDENCE_FIELDS = ["street", "postal_code", "city", "country"]
+LINE_ITEM_CONFIDENCE_FIELDS = [
+    "sku",
+    "description",
+    "quantity",
+    "unit_net_price",
+    "vat_percent",
+    "discount",
+    "source_line_total",
+]
+ORDER_LEVEL_CONFIDENCE_FIELDS = [
+    "order_date",
+    "external_reference",
+    "debtor_company_name",
+    "contact_name",
+    "alias",
+    "payment_details",
+    "payment_method",
+    "payment_status",
+    "payment_date",
+]
+
 
 @dataclass
 class RawAddress:

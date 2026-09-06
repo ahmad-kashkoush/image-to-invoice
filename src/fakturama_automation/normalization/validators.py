@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from decimal import ROUND_HALF_UP, Decimal
 
-from fakturama_automation.extraction.models import RawOrder
-from fakturama_automation.extraction.vision_extractor import (
+from fakturama_automation.extraction.models import (
     ADDRESS_CONFIDENCE_FIELDS,
     LINE_ITEM_CONFIDENCE_FIELDS,
     ORDER_LEVEL_CONFIDENCE_FIELDS,
+    RawOrder,
 )
 from fakturama_automation.normalization.config import MONEY_QUANTIZE
 from fakturama_automation.normalization.models import NormalizedLineItem, NormalizedOrder

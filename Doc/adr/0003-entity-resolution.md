@@ -18,6 +18,21 @@ Accepted. Consequences overtaken — see Amendment (2026-09-06).
 >   the time. `debtor.py`, `product.py` and `resolver.py`'s UI-writing tests
 >   were since removed as low-value; only `test_matching.py` and
 >   `test_resolver.py` remain (`CLAUDE.md`'s test conventions).
+>
+> **Amendment (2026-09-06, P1) — see `0010`.**
+>
+> - **Decision 4's `ResolvedEntity` is trimmed and finally consumed.**
+>   `element` is gone (nothing ever read it); `identity`/`created` remain and
+>   `created` now drives the run log's "matched existing X" / "created X",
+>   which is the distinction this Decision said the log would need. Matching a
+>   Debtor by Customer ID — the fuller connection — still needs a probe of the
+>   Debtors list for a No. column.
+> - **Decision 7's VAT parsing is now literally shared, not merely mirrored.**
+>   `matching.parse_vat_text` is deleted; `exact_vat_matches` and `combos`
+>   both call `normalization.parsing.parse_percent_text`. The numeric-vs-text
+>   distinction the Decision drew is unchanged.
+> - **Creation is now verified.** Each `_create_*` reads its saved form back
+>   and fails closed, which is what the VAT-rate `0%` bug needed.
 
 ## Context
 

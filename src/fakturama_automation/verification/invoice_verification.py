@@ -20,8 +20,8 @@ from typing import Any
 
 from fakturama_automation.error_handling.exceptions import ManualReviewRequired
 from fakturama_automation.normalization.models import NormalizedOrder
-from fakturama_automation.ui_automation import screens
-from fakturama_automation.verification import comparisons, readback
+from fakturama_automation.ui_automation import readers, screens
+from fakturama_automation.verification import comparisons
 from fakturama_automation.verification.payment_verification import payment_problems
 
 _STEP = "verify_invoice_matches_order"
@@ -38,16 +38,16 @@ def verify_invoice_matches_order(invoice_window: Any, normalized_order: Normaliz
     """
     problems: list[str] = []
 
-    cust_ref = readback.read_field_text(invoice_window, name=screens.INVOICE_CUST_REF_EDIT_NAME)
+    cust_ref = readers.read_field_text(invoice_window, name=screens.INVOICE_CUST_REF_EDIT_NAME)
     if not comparisons.text_equals(normalized_order.external_reference, cust_ref):
         problems.append(f"Cust.Ref.: expected '{normalized_order.external_reference}', UI shows '{cust_ref}'")
 
     _, _, gross_total = comparisons.order_level_totals(normalized_order)
-    total_text = readback.read_field_text(invoice_window, name=screens.INVOICE_TOTAL_EDIT_NAME)
+    total_text = readers.read_field_text(invoice_window, name=screens.INVOICE_TOTAL_EDIT_NAME)
     if not comparisons.money_equals(gross_total, total_text):
         problems.append(f"Total: expected {gross_total}, UI shows '{total_text}'")
 
-    rows = readback.read_grid(
+    rows = readers.read_items_grid(
         invoice_window,
         columns=screens.ITEMS_GRID_READ_COLUMNS,
         client=client,
@@ -84,16 +84,16 @@ def verify_invoice_saved(invoice_window: Any, normalized_order: NormalizedOrder,
     """
     problems: list[str] = []
 
-    title = readback.window_title(invoice_window)
+    title = readers.window_title(invoice_window)
     if not title or title == screens.INVOICE_TAB_TITLE_UNSAVED:
         problems.append(f"no invoice number assigned yet (editor still titled {title!r})")
 
-    cust_ref = readback.read_field_text(invoice_window, name=screens.INVOICE_CUST_REF_EDIT_NAME)
+    cust_ref = readers.read_field_text(invoice_window, name=screens.INVOICE_CUST_REF_EDIT_NAME)
     if not comparisons.text_equals(normalized_order.external_reference, cust_ref):
         problems.append(f"Cust.Ref.: expected '{normalized_order.external_reference}', UI shows '{cust_ref}'")
 
     _, _, gross_total = comparisons.order_level_totals(normalized_order)
-    total_text = readback.read_field_text(invoice_window, name=screens.INVOICE_TOTAL_EDIT_NAME)
+    total_text = readers.read_field_text(invoice_window, name=screens.INVOICE_TOTAL_EDIT_NAME)
     if not comparisons.money_equals(gross_total, total_text):
         problems.append(f"Total: expected {gross_total}, UI shows '{total_text}'")
 

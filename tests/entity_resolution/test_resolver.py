@@ -9,23 +9,27 @@ from __future__ import annotations
 
 import pytest
 
+from fakturama_automation.entity_resolution.models import ResolvedEntity
 from fakturama_automation.entity_resolution.resolver import resolve_exact_or_create
 from fakturama_automation.error_handling.exceptions import ManualReviewRequired
+
+EXISTING = ResolvedEntity(identity="CHR-ERG-01", created=False)
+NEW = ResolvedEntity(identity="CHR-ERG-01", created=True)
 
 
 def test_returns_the_single_exact_match_without_creating() -> None:
     created = {"called": False}
 
     def search_by():
-        return ["existing-record"]
+        return [EXISTING]
 
     def create():
         created["called"] = True
-        return "new-record"
+        return NEW
 
     result = resolve_exact_or_create(search_by, create)
 
-    assert result == "existing-record"
+    assert result is EXISTING
     assert created["called"] is False
 
 
@@ -34,16 +38,16 @@ def test_creates_when_no_match_found() -> None:
         return []
 
     def create():
-        return "new-record"
+        return NEW
 
     result = resolve_exact_or_create(search_by, create)
 
-    assert result == "new-record"
+    assert result is NEW
 
 
 def test_raises_manual_review_when_more_than_one_match() -> None:
     def search_by():
-        return ["record-a", "record-b"]
+        return [EXISTING, NEW]
 
     def create():
         raise AssertionError("create() must not be called when matches are ambiguous")
@@ -58,7 +62,7 @@ def test_raises_manual_review_when_more_than_one_match() -> None:
 
 def test_default_entity_and_step_appear_in_reason_when_not_given() -> None:
     with pytest.raises(ManualReviewRequired) as exc_info:
-        resolve_exact_or_create(lambda: [1, 2, 3], lambda: None)
+        resolve_exact_or_create(lambda: [EXISTING, NEW, EXISTING], lambda: NEW)
 
     assert exc_info.value.step == "entity_resolution"
     assert "3 exact matches for entity" in exc_info.value.reason
@@ -69,7 +73,7 @@ def test_search_by_is_called_exactly_once() -> None:
 
     def search_by():
         calls["n"] += 1
-        return ["only-match"]
+        return [EXISTING]
 
     resolve_exact_or_create(search_by, lambda: None)
 

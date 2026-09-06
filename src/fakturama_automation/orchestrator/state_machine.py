@@ -35,12 +35,14 @@ to the manual review queue, the single stop point for a run.
 from __future__ import annotations
 
 import enum
+import logging
 from pathlib import Path
 from typing import Any
 
 from fakturama_automation.error_handling.exceptions import ManualReviewRequired
 from fakturama_automation.error_handling.manual_review import route_to_manual_review
 from fakturama_automation.extraction import extract_order
+from fakturama_automation.normalization.models import NormalizedOrder
 from fakturama_automation.normalization.normalizer import normalize_order
 from fakturama_automation.orchestrator import config, steps
 from fakturama_automation.ui_automation import screens
@@ -66,8 +68,11 @@ from fakturama_automation.verification.payment_verification import verify_paymen
 class WorkflowState(enum.Enum):
     """States of the order-to-invoice workflow, in execution order."""
 
-    EXTRACT = "extract"
-    NORMALIZE = "normalize"
+    # These two carry the step names extraction/normalization raise with, so
+    # a queue entry and the CLI's own "stopped at" line always agree. Every
+    # other value already matches the step its module raises under.
+    EXTRACT = "extraction"
+    NORMALIZE = "normalization"
     OPEN_ORDER = "open_order"
     POPULATE_ORDER_FIELDS = "populate_order_fields"
     ADD_ORDER_LINES = "add_order_lines"
@@ -77,6 +82,33 @@ class WorkflowState(enum.Enum):
     APPLY_AND_VERIFY_PAYMENT = "apply_and_verify_payment"
     SAVE_AND_VERIFY_INVOICE = "save_and_verify_invoice"
     DONE = "done"
+
+
+logger = logging.getLogger(__name__)
+
+
+def _enter(state: WorkflowState) -> WorkflowState:
+    """Record the state being entered and return it, so the loop below reads
+    as a sequence of states rather than a sequence of assignments plus log
+    calls. A run drives a desktop app for minutes; without this it produces
+    no output at all until it is over.
+    """
+    logger.info("%s", state.value)
+    return state
+
+
+def extract_and_normalize(image_path: Path, *, client: Any = None) -> NormalizedOrder:
+    """The two states that need no Fakturama window: EXTRACT, then
+    NORMALIZE.
+
+    Raises ManualReviewRequired rather than routing it - the caller decides
+    what to do, which is what lets the CLI offer a --dry-run that reports a
+    normalization failure without touching the UI.
+    """
+    _enter(WorkflowState.EXTRACT)
+    raw_order = extract_order(image_path, client=client)
+    _enter(WorkflowState.NORMALIZE)
+    return normalize_order(raw_order)
 
 
 # Every mechanical failure ui_automation can raise. None of them decides on
@@ -112,11 +144,11 @@ def run_workflow(
     queue), so this return value is the only way a caller can tell the two
     apart - __main__ turns it into the process exit code.
     """
-    state = WorkflowState.EXTRACT
+    state = _enter(WorkflowState.EXTRACT)
     try:
         raw_order = extract_order(image_path, client=client)
 
-        state = WorkflowState.NORMALIZE
+        state = _enter(WorkflowState.NORMALIZE)
         order = normalize_order(raw_order)
 
         if app is None:
@@ -128,41 +160,44 @@ def run_workflow(
             app = FakturamaApp()
             app.connect(screens.APP_TITLE_RE)
 
-        state = WorkflowState.OPEN_ORDER
+        state = _enter(WorkflowState.OPEN_ORDER)
         window = steps.open_new_order(app)
 
-        state = WorkflowState.POPULATE_ORDER_FIELDS
+        state = _enter(WorkflowState.POPULATE_ORDER_FIELDS)
         steps.populate_order_fields(app, window, order, client=client, settle_seconds=settle_seconds)
 
-        state = WorkflowState.ADD_ORDER_LINES
+        state = _enter(WorkflowState.ADD_ORDER_LINES)
         for index, item in enumerate(order.line_items):
             steps.add_order_line(
                 app, window, item, position=index + 1, client=client, settle_seconds=settle_seconds
             )
 
-        state = WorkflowState.VALIDATE_ORDER
+        state = _enter(WorkflowState.VALIDATE_ORDER)
         verify_order_before_save(window, order)
 
-        state = WorkflowState.SAVE_AND_VERIFY_ORDER
+        state = _enter(WorkflowState.SAVE_AND_VERIFY_ORDER)
         steps.save_order(app, window)
         verify_order_saved(window, order, client=client)
 
-        state = WorkflowState.CREATE_AND_VERIFY_INVOICE
+        state = _enter(WorkflowState.CREATE_AND_VERIFY_INVOICE)
         invoice_window = steps.create_linked_invoice(app, window, client=client)
         verify_invoice_matches_order(invoice_window, order, client=client)
 
-        state = WorkflowState.APPLY_AND_VERIFY_PAYMENT
+        state = _enter(WorkflowState.APPLY_AND_VERIFY_PAYMENT)
         steps.apply_payment(app, invoice_window, order, client=client)
         verify_payment_applied(invoice_window, order, client=client)
 
-        state = WorkflowState.SAVE_AND_VERIFY_INVOICE
+        state = _enter(WorkflowState.SAVE_AND_VERIFY_INVOICE)
         steps.save_invoice(app, invoice_window)
         verify_invoice_saved(invoice_window, order, client=client)
 
+        logger.info("%s", WorkflowState.DONE.value)
         return WorkflowState.DONE
     except ManualReviewRequired as error:
+        logger.warning("stopped at %s: %s", error.step, error.reason)
         route_to_manual_review(error, str(image_path), out_dir=out_dir)
         return state
     except _UI_DISCOVERY_ERRORS as error:
+        logger.warning("stopped at %s: %s", state.value, error)
         route_to_manual_review(ManualReviewRequired(state.value, str(error)), str(image_path), out_dir=out_dir)
         return state

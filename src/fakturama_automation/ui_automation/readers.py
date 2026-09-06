@@ -1,26 +1,27 @@
 """Reading a control's current contents back out of the live UI.
 
-Keeps the three verification modules from each re-deriving "how do I read a
-field's current value". *Where* a control is belongs to
-`ui_automation.locators`, since the write path needs the same answers.
+Here rather than in `verification` because reading a control back is not a
+verification concern - entity resolution reads a record it just saved to
+confirm the save took, and the payment step reads the combo it just set.
+Verification is one caller of this, not its owner.
 
 No pywinauto import: only the documented `window_text()`, `get_value()`,
-`get_toggle_state()` are called on whatever the caller passes in.
+`selected_text()`, `get_toggle_state()` and `capture_as_image()` are called
+on whatever the caller passes in.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from fakturama_automation.ui_automation import controls, locators, vision_grounding
+from fakturama_automation.ui_automation import config, controls, locators, vision_grounding
 from fakturama_automation.ui_automation.exceptions import ControlNotFoundError
-from fakturama_automation.verification import config
 
 
 def window_title(window: Any) -> str:
-    """Read a window/editor pane's own title (its accessible Name), e.g.
-    to detect that the New Order editor's tab changed from "New Order" to
-    an assigned order number after a save.
+    """A window or editor pane's own title (its accessible Name), e.g. to
+    detect that an editor's tab changed from "New Order" to an assigned
+    order number after a save.
     """
     return window.window_text()
 
@@ -69,14 +70,12 @@ def read_field_text(
     control_type: str = "Edit",
     name: str | None = None,
     auto_id: str | None = None,
-    timeout_seconds: float = config.DIALOG_TIMEOUT_SECONDS,
+    timeout_seconds: float = config.READ_TIMEOUT_SECONDS,
 ) -> str:
     """Locate one field under window and read its current value.
 
-    A selector that does not match a real control fails closed here:
-    controls.find_control raises ControlNotFoundError or
-    AmbiguousControlError rather than this function returning a
-    plausible-looking empty string.
+    A selector that does not match a real control fails closed here rather
+    than returning a plausible-looking empty string.
     """
     control = controls.find_control(window, control_type, name=name, auto_id=auto_id, timeout_seconds=timeout_seconds)
     return field_value(control)
@@ -88,17 +87,14 @@ def read_toggle_state(
     control_type: str = "CheckBox",
     name: str | None = None,
     auto_id: str | None = None,
-    timeout_seconds: float = config.DIALOG_TIMEOUT_SECONDS,
+    timeout_seconds: float = config.READ_TIMEOUT_SECONDS,
 ) -> bool:
-    """Locate a CheckBox-like control and read whether it is checked, via
-    pywinauto's documented UIA TogglePattern wrapper (`get_toggle_state()`,
-    returning 1 for the "on" state).
-    """
+    """Locate a CheckBox-like control and read whether it is checked."""
     control = controls.find_control(window, control_type, name=name, auto_id=auto_id, timeout_seconds=timeout_seconds)
     return control.get_toggle_state() == 1
 
 
-def read_grid(
+def read_items_grid(
     window: Any,
     *,
     columns: list[str],
