@@ -1,18 +1,10 @@
-"""Invoice creation fakturama_automation.verification.
+"""Invoice creation verification.
 
-Section 5 (verification). The linked Invoice is created directly from the
-saved Order (Task Description 4.6-4.7), so its Cust.Ref., item lines, and
-totals should already match the normalized record - but this re-verifies
-that independently against the live UI rather than trusting Fakturama's
-own Invoice-generation step (Task 5.1: "Confirm Cust.Ref., ... item lines,
-and totals were copied from the Order"), the same fail-closed principle
-order_verification.py applies to the save step.
-
-Reuses verification.comparisons/readback exactly like
-order_verification.py; the Invoice editor is assumed to share the Order
-editor's field layout (same Eclipse RCP application, created directly
-from it) since no VM probe of a linked Invoice editor exists yet -
-verification/config.py flags which selectors are confirmed vs. assumed.
+The linked Invoice is created directly from the saved Order, so its
+Cust.Ref., item lines, and totals should already match the normalized
+record - but this re-verifies that independently against the live UI
+rather than trusting Fakturama's own Invoice-generation step, the same
+fail-closed principle order_verification.py applies to the save step.
 """
 
 from __future__ import annotations
@@ -47,7 +39,6 @@ def verify_invoice_matches_order(invoice_window: Any, normalized_order: Normaliz
 
     rows = readback.read_grid(
         invoice_window,
-        pane_auto_id=config.INVOICE_ITEMS_GRID_PANE_AUTO_ID,
         columns=config.INVOICE_ITEMS_GRID_COLUMNS,
         client=client,
         step=_STEP,

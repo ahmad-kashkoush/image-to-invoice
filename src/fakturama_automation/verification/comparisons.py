@@ -1,19 +1,13 @@
 """Pure comparisons between a NormalizedOrder and text read back from the UI.
 
-Section 5 (verification). Bridges the type gap between normalization's
-typed values (Decimal money/percent, datetime.date) and what
-ui_automation/vision_grounding actually return: plain strings, read from
-an Edit's window_text() or a vision-grounded grid cell. Pure functions, no
-UI/network - unit-tested the same way as entity_resolution/matching.py.
+Bridges the type gap between normalization's typed values (Decimal money/
+percent, datetime.date) and what ui_automation/vision_grounding actually
+return: plain strings. Pure functions, no UI/network.
 
 Money and percent parsing here mirror normalization.normalizer's locale-
-tolerant parsing (dot- or comma-decimal, optional thousands separator,
-optional currency symbol) but are written independently rather than
-importing normalizer's module-private parser - the same choice
-entity_resolution.matching.parse_vat_text already made for the same
-reason: each section's own read-back parsing is its own small copy,
-matching the precedent matching.py set, rather than reaching into another
-module's private helper.
+tolerant parsing but are written independently rather than importing
+normalizer's module-private parser - each section keeps its own small
+copy, the same choice entity_resolution.matching.parse_vat_text made.
 """
 
 from __future__ import annotations
@@ -148,7 +142,9 @@ def line_row_problems(expected: NormalizedLineItem, row: dict[str, str]) -> list
     problems: list[str] = []
     label = expected.sku or "?"
 
-    sku = row.get("SKU", "")
+    # "Item No." matches the grid's own visible header, not "SKU"; must
+    # stay in sync with verification.config.ORDER_ITEMS_GRID_COLUMNS.
+    sku = row.get("Item No.", "")
     if not text_equals(expected.sku, sku):
         problems.append(f"{label}: SKU expected '{expected.sku}', UI shows '{sku}'")
 

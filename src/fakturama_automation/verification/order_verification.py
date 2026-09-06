@@ -1,18 +1,14 @@
-"""Order save fakturama_automation.verification.
+"""Order save verification.
 
-Section 5 (verification). Reads the saved Order's own state back from the
-live UI rather than trusting the save action succeeded (Task Description
-4.3-4.5): the editor's own tab title (an assigned order number replaces
-"New Order" once saved), its Cust.Ref./Total Gross/Discount/VAT/Total
-fields, and its item-row grid (vision-grounded - Fakturama's line grid is
-a custom-rendered canvas with no UIA rows, the same finding
-entity_resolution's list grids made; see ui_automation/vision_grounding.py
-and Doc/adr/0003's Consequences section, which names this exact reuse).
+Reads the saved Order's own state back from the live UI rather than
+trusting the save action succeeded: the editor's own tab title (an
+assigned order number replaces "New Order" once saved), its Cust.Ref./
+Total Gross/Discount/VAT/Total fields, and its item-row grid
+(vision-grounded - Fakturama's line grid has no UIA rows).
 
-Every discrepancy found is aggregated into one ManualReviewRequired,
-mirroring normalization.normalizer.normalize_order's fail-closed,
-aggregate-then-raise shape (CLAUDE.md), rather than raising on the first
-problem, so a reviewer sees the whole picture for this Order at once.
+Every discrepancy found is aggregated into one ManualReviewRequired rather
+than raising on the first problem, so a reviewer sees the whole picture at
+once.
 """
 
 from __future__ import annotations
@@ -57,9 +53,9 @@ def _field_problems(order_window: Any, order: NormalizedOrder) -> list[str]:
 
     net_total, vat_total, gross_total = comparisons.order_level_totals(order)
 
-    total_gross_text = readback.read_field_text(order_window, name=config.ORDER_TOTAL_GROSS_EDIT_NAME)
-    if not comparisons.money_equals(net_total, total_gross_text):
-        problems.append(f"Total Net: expected {net_total}, UI shows '{total_gross_text}'")
+    total_net_text = readback.read_field_text(order_window, name=config.ORDER_TOTAL_NET_EDIT_NAME)
+    if not comparisons.money_equals(net_total, total_net_text):
+        problems.append(f"Total Net: expected {net_total}, UI shows '{total_net_text}'")
 
     vat_text = readback.read_field_text(order_window, name=config.ORDER_VAT_EDIT_NAME)
     if not comparisons.money_equals(vat_total, vat_text):
@@ -75,7 +71,6 @@ def _field_problems(order_window: Any, order: NormalizedOrder) -> list[str]:
 def _line_item_problems(order_window: Any, order: NormalizedOrder, *, client: Any) -> list[str]:
     rows = readback.read_grid(
         order_window,
-        pane_auto_id=config.ORDER_ITEMS_GRID_PANE_AUTO_ID,
         columns=config.ORDER_ITEMS_GRID_COLUMNS,
         client=client,
         step=_STEP,
