@@ -1,27 +1,18 @@
 """Shared search-then-create resolution pattern.
 
-Section 4 (entity_resolution). Every entity resolver (debtor, product, VAT
-rate, payment method) follows the same shape: search Fakturama for an
-exact match, return it if found, create a new record only if no exact
-match exists. If the search is ambiguous (more than one exact match,
-which should not happen but must be handled), route to error_handling
-rather than picking one. This module holds both halves of that shape:
+Every entity resolver (debtor, product, VAT rate, payment method) follows
+the same shape: search Fakturama for an exact match, return it if found,
+create a new record only if none exists, and route an ambiguous search
+(more than one exact match) to error_handling rather than picking one.
+This module holds both halves:
 
-- resolve_exact_or_create: the zero/one/many decision, pure with respect
-  to the search_by/create callables it's given.
+- resolve_exact_or_create: the zero/one/many decision, pure w.r.t. the
+  search_by/create callables it's given.
 - search_grid_exact: the shared "search Fakturama's own UI" half each
-  entity's search_by is built from - type a key into a search box, read
-  the (custom-rendered) results grid back via
-  ui_automation.vision_grounding, and return its rows.
+  entity's search_by is built from.
 
-Despite composing ui_automation.controls/vision_grounding (which touch
-live pywinauto/vision objects), this module never imports pywinauto
-itself - callers pass in whatever duck-typed `parent`/`vision_client` they
-hold - so it stays importable and unit-testable on macOS/Linux with fakes,
-the same seam ui_automation.controls/waits already use (Doc/adr/0002).
 debtor.py/product.py/vat_rate.py/payment_method.py compose both halves
-with Fakturama's actual control identifiers (entity_resolution/config.py)
-to implement each entity.
+with Fakturama's actual control identifiers (entity_resolution/config.py).
 """
 
 from __future__ import annotations
@@ -65,8 +56,7 @@ def resolve_exact_or_create(
 def search_grid_exact(
     parent: Any,
     *,
-    search_edit_auto_id: str,
-    grid_pane_auto_id: str,
+    grid_pane_name: str,
     key: str,
     columns: list[str],
     vision_client: Any = None,
@@ -78,30 +68,25 @@ def search_grid_exact(
     ui_automation.vision_grounding.
 
     Fakturama's list/search result grids are SWT/NatTable canvases with no
-    UIA-exposed rows (confirmed by probing every entity's list view -
-    probes/probe-06-debitors.txt, probe-07-products.txt,
-    probe-09-Payment.txt each show an empty results Pane). There is no UIA
-    signal to poll for "the grid finished updating" the way
-    ui_automation.waits.wait_for_stable_row_count does elsewhere, so this
-    uses a short, fixed settle delay instead of polling - a deliberate,
-    documented exception to this codebase's "poll, don't sleep" rule,
-    justified because polling here would mean firing a vision API call per
-    poll instead of once (see Doc/adr/0003-entity-resolution.md).
+    UIA-exposed rows. There's no UIA signal to poll for "the grid finished
+    updating", so this uses a short, fixed settle delay instead of polling
+    - a deliberate exception to this codebase's "poll, don't sleep" rule,
+    since polling here would mean firing a vision API call per poll.
 
-    `search_edit_auto_id`/`grid_pane_auto_id` select controls under
-    `parent` by auto_id (controls.find_control) since these controls carry
-    no accessible name in Fakturama's UI. `vision_client` is passed straight
-    through to vision_grounding.read_grid_rows (injectable, defaults to a
-    real anthropic.Anthropic() client there).
+    The search Edit is found structurally (the "Search:" Text, then the
+    Edit under its parent Pane), not by auto_id: this app's blank-named
+    controls get a fresh auto_id on every process launch. The results
+    grid's own container Pane has the same auto_id instability but a
+    stable per-entity accessible name, so `grid_pane_name` locates it
+    instead.
     """
-    search_edit = controls.find_control(
-        parent, "Edit", auto_id=search_edit_auto_id, timeout_seconds=timeout_seconds
-    )
+    search_label = controls.find_control(parent, "Text", name="Search:", timeout_seconds=timeout_seconds)
+    search_edit = controls.find_control(search_label.parent(), "Edit", timeout_seconds=timeout_seconds)
     search_edit.set_text(key)
     time.sleep(settle_seconds)
 
     grid_pane = controls.find_control(
-        parent, "Pane", auto_id=grid_pane_auto_id, timeout_seconds=timeout_seconds
+        parent, "Pane", name=grid_pane_name, timeout_seconds=timeout_seconds
     )
     image_bytes = vision_grounding.capture_control_image(grid_pane)
     return vision_grounding.read_grid_rows(image_bytes, columns=columns, client=vision_client)

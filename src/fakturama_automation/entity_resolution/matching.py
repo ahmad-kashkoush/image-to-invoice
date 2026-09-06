@@ -1,20 +1,14 @@
 """Pure exact-match filtering over rows read back from Fakturama.
 
-Section 4 (entity_resolution). Fakturama's list/search result grids are
-custom-rendered (SWT/NatTable) and do not expose per-row elements to UIA
-(confirmed against probes/probe-06-debitors.txt, probe-07-products.txt,
-probe-09-Payment.txt: each results pane has no child controls). So each
-resolver's search step reads the filtered grid back via
-ui_automation.vision_grounding.read_grid_rows, which returns rows as plain
-dicts of column-name -> text; the *filtering* of those rows down to an
-exact match is pure and lives here, independent of how the rows were
-obtained, so it can be unit-tested without a screenshot or a live window.
+Fakturama's list/search result grids are custom-rendered and don't expose
+per-row elements to UIA, so each resolver reads the grid back via
+ui_automation.vision_grounding.read_grid_rows as plain column-name -> text
+dicts; the *filtering* of those rows down to an exact match is pure and
+lives here, independent of how the rows were obtained.
 
 Exact match only, never fuzzy (Doc/Design.md's Tradeoffs section): a
-near-miss (extra whitespace already handled by normalization, a
-differently-cased name, a rounding-different VAT percent) is treated as
-"no match" and routed to creation/manual review by resolver.py, never
-silently matched to the wrong record.
+near-miss is treated as "no match" and routed to creation/manual review by
+resolver.py, never silently matched to the wrong record.
 """
 
 from __future__ import annotations
@@ -23,11 +17,12 @@ import re
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable
 
-# Mirrors normalization.normalizer's locale-tolerant number parsing (dot or
-# European comma decimal, optional thousands separator, optional currency/
-# percent symbol) so a VAT rate read back from the UI ("19 %", "19,00 %")
-# compares equal to the Decimal produced by normalization.
-_PERCENT_SYMBOL = re.compile(r"%")
+# Mirrors normalization.normalizer's locale-tolerant number parsing so a VAT
+# rate read back from the UI ("19 %", "19,00 %") compares equal to the
+# Decimal produced by normalization. Also matches a number embedded with a
+# "%" elsewhere in the text (the Order editor's VAT dropdown names each
+# option "{Name} ({Value}%)", not a bare value).
+_VAT_NUMBER_WITH_PERCENT = re.compile(r"([\d.,]+)\s*%")
 
 
 def _default_read(row: Any) -> str:
@@ -84,15 +79,22 @@ def exact_vat_matches(
 
 def parse_vat_text(text: str) -> Decimal | None:
     """Parse a VAT percent read back from Fakturama's UI ("19 %",
-    "19,00 %", a bare "19") to a Decimal, or None if it doesn't parse.
+    "19,00 %", a bare "19", or a number embedded elsewhere in the text
+    like "abc (20.0%)") to a Decimal, or None if it doesn't parse.
 
     Public (not module-private) so other modules needing the same
     VAT-text parsing (e.g. a future ComboBox-option reader) reuse this one
     implementation rather than re-deriving it - CLAUDE.md's "keep this
     formula in exactly one place" rule applied to VAT-text parsing, not
     just the line total formula.
+
+    Tries to find a "<number>%" pattern anywhere in the text first (so a
+    prefixed name, as the Order editor's own line-item VAT dropdown uses,
+    doesn't prevent a match); falls back to treating the whole (trimmed)
+    text as the number, for a bare value with no "%" at all.
     """
-    cleaned = _PERCENT_SYMBOL.sub("", text).strip()
+    match = _VAT_NUMBER_WITH_PERCENT.search(text)
+    cleaned = match.group(1) if match is not None else text.strip()
     if not cleaned:
         return None
     if "," in cleaned and "." in cleaned:

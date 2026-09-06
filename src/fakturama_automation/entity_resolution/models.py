@@ -1,9 +1,7 @@
 """Result type returned by every entity resolver.
 
-Section 4 (entity_resolution). Not dictated by the original scaffold (which
-typed every resolver's return as a bare Any) - see
-Doc/adr/0003-entity-resolution.md for why a named result type was
-introduced instead.
+See Doc/adr/0003-entity-resolution.md for why a named result type replaced
+the original scaffold's bare Any.
 """
 
 from __future__ import annotations
