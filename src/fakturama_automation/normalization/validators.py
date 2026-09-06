@@ -1,9 +1,9 @@
 """Validation checks run during fakturama_automation.normalization.
 
-Section 2 (normalization). These checks decide whether a normalized order
-is safe to hand to the fakturama_automation.orchestrator. Anything that
-fails stops the flow before automation starts (normalizer.py raises
-ManualReviewRequired), rather than warning and continuing.
+These checks decide whether a normalized order is safe to hand to the
+orchestrator. Anything that fails stops the flow before automation starts
+(normalizer.py raises ManualReviewRequired), rather than warning and
+continuing.
 """
 
 from __future__ import annotations

@@ -1,18 +1,12 @@
-"""Configuration for normalization and validation.
-
-Section 2 (normalization). Kept deliberately small and env-driven, mirroring
-extraction/config.py, so thresholds can change without touching
-normalizer.py/validators.py and tests can override them.
-"""
+"""Configuration for normalization and validation."""
 
 from __future__ import annotations
 
 import os
 from decimal import Decimal
 
-# Matches extraction.DEFAULT_CONFIDENCE_THRESHOLD: a field the vision pass
-# reports below this is treated as unreliable and fails the order closed
-# rather than being silently trusted.
+# A field the vision pass reports below this is treated as unreliable and
+# fails the order closed rather than being silently trusted.
 DEFAULT_CONFIDENCE_THRESHOLD = float(
     os.environ.get("FAKTURAMA_NORMALIZATION_CONFIDENCE_THRESHOLD", "0.75")
 )

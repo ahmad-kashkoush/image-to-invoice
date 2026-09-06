@@ -1,8 +1,7 @@
 """Typed, validated data models produced by fakturama_automation.normalization.
 
-Section 2 (normalization). These are the shapes ui_automation and
-orchestrator should consume; extraction/models.py holds the raw,
-pre-validation counterparts.
+These are the shapes ui_automation and orchestrator should consume;
+extraction/models.py holds the raw, pre-validation counterparts.
 """
 
 from __future__ import annotations

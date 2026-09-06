@@ -1,14 +1,13 @@
 """Top level normalization entry point.
 
-Section 2 (normalization). Converts every field on a RawOrder into its
-typed, canonical NormalizedOrder counterpart (ISO dates, rounded Decimal
-money, plain-number percentages, trimmed text), then runs the validators in
-validators.py. Fields that fail to parse do not raise immediately: they are
-recorded and normalization keeps going, so a single malformed field does not
-hide other problems on the same order. If anything failed to parse or any
-validator check fails, one aggregated ManualReviewRequired is raised instead
-of returning a partially-trustworthy order - this is the fail-closed gate
-the design doc requires before automation opens a New Order.
+Converts every field on a RawOrder into its typed, canonical NormalizedOrder
+counterpart (ISO dates, rounded Decimal money, plain-number percentages,
+trimmed text), then runs the validators in validators.py. Fields that fail
+to parse do not raise immediately: they are recorded and normalization
+keeps going, so a single malformed field does not hide other problems on
+the same order. If anything failed to parse or any validator check fails,
+one aggregated ManualReviewRequired is raised instead of returning a
+partially-trustworthy order.
 """
 
 from __future__ import annotations
