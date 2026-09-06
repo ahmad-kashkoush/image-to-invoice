@@ -1,28 +1,14 @@
 """Manual review queue handling.
 
-Section 6 (error_handling). This is the single stop point the orchestrator
-should call into whenever a ManualReviewRequired is raised, from
-entity_resolution ambiguity or a failed fakturama_automation.verification.
+The single stop point the orchestrator calls into whenever a
+ManualReviewRequired is raised. Each call appends one JSON line to a single
+queue file (`config.OUT_DIR`/`config.QUEUE_FILENAME`) - a human or future
+tool can tail/parse it without per-entry file management. See
+Doc/adr/0005-error-handling.md for the reasoning.
 
-Implementation: each call appends one JSON object as a line to a single
-queue file (`config.OUT_DIR`/`config.QUEUE_FILENAME`, the README's shared
-"out" folder) - simplest durable, reviewable record; a human (or a future
-tool) can `tail`/parse the file without per-entry file management. An entry
-holds a timestamp, the source image path, and the failed step/reason -
-everything the current route_to_manual_review(error, source_image_path)
-signature can reach. ManualReviewRequired itself carries no richer partial
-state yet (its own TODO invited extending it); if a caller does attach a
-`details` attribute in the future, it is included automatically via
-getattr below, so this function will not need to change again for that.
-See Doc/adr/0005-error-handling.md for the reasoning, including what was
-deferred (a `details` payload on the exception, a Decimal/date-aware
-encoder for partial order state) to TODo.md's Future work.
-
-route_to_manual_review is the terminal handler for a workflow run: it must
-never raise. Any failure while writing the entry (an unwritable out_dir,
-a serialization problem) is caught and reported to stderr as a last
-resort instead of propagating, since there is nowhere further for this
-function to route a failure of its own.
+Never raises: a write failure (unwritable out_dir, serialization problem)
+is caught and reported to stderr instead, since this is the terminal
+handler for a workflow run.
 """
 
 from __future__ import annotations
