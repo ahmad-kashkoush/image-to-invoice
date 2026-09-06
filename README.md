@@ -15,7 +15,10 @@ Out of scope: Delivery, Correction, and Dunning documents.
 
 ## Demo
 
-<video src="Assets/Demo.mp4" controls width="600"></video>
+
+
+https://github.com/user-attachments/assets/7e546b2e-27af-4c07-8e9c-7b16c29b4b16
+
 
 ## Setup
 
