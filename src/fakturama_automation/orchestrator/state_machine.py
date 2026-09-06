@@ -24,13 +24,11 @@ States, in order:
    verification.payment_verification.
 
 Every state either advances or raises ManualReviewRequired; run_workflow
-catches it (and any control-discovery failure from ui_automation, which is
-converted into one) at the top level and routes it to
-error_handling.manual_review - the single stop point for this whole run,
-per Doc/Design.md's Error Handling section. `state` tracks the last state
+catches it (and any control-discovery failure from ui_automation, converted
+into one) at the top level and routes it to error_handling.manual_review -
+the single stop point for this whole run. `state` tracks the last state
 reached so a converted control-discovery failure is reported against the
-right step, the same context resolve_exact_or_create's `step` gives an
-ambiguous-match failure.
+right step.
 """
 
 from __future__ import annotations
@@ -85,12 +83,11 @@ def run_workflow(
     """Run the full state machine for a single order image.
 
     `app` defaults to a FakturamaApp connected to the running Fakturama
-    window; passing one in (a duck-typed fake exposing `.main_window()`)
-    is the seam tests use to avoid a real window. `client` is the
-    injectable vision client threaded through extraction, entity
-    resolution, and verification alike - one client for the whole run,
-    the same seam every section already established. Returns the last
-    state reached (WorkflowState.DONE on success).
+    window; passing one in (a duck-typed fake) is the seam tests use to
+    avoid a real window. `client` is the injectable vision client threaded
+    through extraction, entity resolution, and verification alike - one
+    client for the whole run. Returns the last state reached
+    (WorkflowState.DONE on success).
     """
     state = WorkflowState.EXTRACT
     try:
@@ -100,11 +97,9 @@ def run_workflow(
         order = normalize_order(raw_order)
 
         if app is None:
-            # Deferred import: ui_automation.app is the one module that
-            # imports pywinauto.Application directly, which fails off
-            # Windows (Doc/adr/0002) - importing it only when actually
-            # needed keeps this module importable cross-platform for
-            # tests that always pass a fake `app`.
+            # Deferred import: ui_automation.app imports pywinauto.Application
+            # directly, which fails off Windows - keeps this module
+            # importable cross-platform for callers that pass a fake `app`.
             from fakturama_automation.ui_automation.app import FakturamaApp
 
             app = FakturamaApp()

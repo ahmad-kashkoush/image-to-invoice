@@ -1,8 +1,7 @@
 """CLI entry point: `python -m fakturama_automation.orchestrator <image_path>`.
 
-Section 7 (orchestrator). Thin wrapper around run_workflow so a single
-order image from the shared "in" folder (README.md's host/VM layout) can
-be processed without importing the package programmatically.
+Thin wrapper around run_workflow so a single order image from the shared
+"in" folder can be processed without importing the package programmatically.
 """
 
 from __future__ import annotations
