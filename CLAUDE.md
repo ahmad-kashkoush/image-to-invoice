@@ -28,7 +28,7 @@ starting new work — it tracks what's real vs. still a stub.
 
 **Per-section wrap-up ritual** (do all of these when a section moves from
 stub to real, not just the code):
-1. Implement + test the section.
+1. Implement the section.
 2. Add an "Implementation notes" subsection to the relevant part of
    `Doc/Design.md` (see the Normalization & Validation section for the
    pattern) — what was actually decided, not a restatement of the design.
@@ -37,7 +37,7 @@ stub to real, not just the code):
    `Doc/adr/0001-normalization-and-validation.md` for the template:
    Status / Context / Decisions / Consequences).
 4. Move the section from "Next" to "Done" in `TODo.md`, listing the files
-   and tests touched, and renumber the remaining "Next" list.
+   touched, and renumber the remaining "Next" list.
 5. Suggest bulk commit message following conventional commits pattern.
 
 ## Fail-closed, not best-effort
@@ -90,20 +90,27 @@ values directly rather than mutating global state.
 
 ## Test conventions
 
-- Tests live under `tests/<section>/`, mirroring `src/fakturama_automation/<section>/`.
-  No `__init__.py` files, no `pytest.ini` — plain rootdir discovery (see
-  `tests/extraction/`, `tests/normalization/`).
-- No network calls and no real UI in unit tests. External clients (e.g. the
-  `anthropic` client in `vision_extractor.py`) are injectable via a
-  keyword-only `client` parameter, satisfied in tests by a small fake
-  exposing just the methods actually used.
-- Prefer pure-function tests wherever a section's logic can be pure
-  (normalization is entirely pure `dataclass -> dataclass` transformation).
-- Where a section has a well-defined "known good" sample (e.g. the
-  assessment's synthetic order image `WEB-2026-0714-A17` for normalization,
+Tests are no longer required per section — the duck-typed pywinauto/UI-fake
+test suite was removed as low-value (2026-09-06). What remains covers only
+pure, no-mock logic: normalization (`normalizer.py`/`validators.py`),
+verification's comparison helpers (`comparisons.py`), entity resolution's
+`matching.py`, UI automation's `waits.py` (no pywinauto import), error
+handling's `manual_review.py`, and extraction's `vision_extractor.py`/
+`ocr_fallback.py` (network calls faked via an injectable `client` keyword
+param — a sanctioned exception, not "UI-fake").
+
+- Don't add new tests for UI-writing code — anything that touches a real
+  `pywinauto` control/window (entity_resolution's per-entity form-filling,
+  `ui_automation.controls`/`vision_grounding`, `verification`'s
+  order/invoice/payment checks, the orchestrator's state machine/actions).
+  That class of test was judged not worth its maintenance cost; verify
+  those changes live on the VM instead.
+- If you do add a test for genuinely pure logic, keep it under
+  `tests/<section>/`, mirroring `src/fakturama_automation/<section>/` (no
+  `__init__.py`, no `pytest.ini` — plain rootdir discovery), and prefer a
+  golden fixture (e.g. the assessment's `WEB-2026-0714-A17` sample order,
   Northstar Office GmbH / EUR / net line totals 450.00 + 120.00 = 570.00
-  net), use it as a golden fixture so a broken formula fails a
-  human-checkable regression, not just an invariant.
+  net) over a synthetic one when a section has one.
 
 ## Platform note
 

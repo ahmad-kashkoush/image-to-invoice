@@ -52,7 +52,7 @@ remains is VM-probe-gated (see "Not started" below), not unimplemented code.
     back to the full tree if nothing matches), so the Order/Invoice editors
     and each entity search dialog can be probed individually instead of
     reading the whole main-window dump every time.
-  - Tests: `tests/ui_automation/test_controls.py`, `test_waits.py`.
+  - Tests: `tests/ui_automation/test_waits.py`.
   - Rationale: `Doc/adr/0002-ui-automation-testability-boundary.md`.
 - **Section 4 — Entity Resolution** (`entity_resolution/`, uncommitted)
   - `resolver.py::resolve_exact_or_create` — shared zero/one/many
@@ -86,10 +86,8 @@ remains is VM-probe-gated (see "Not started" below), not unimplemented code.
     initial pass captured a stale editor instead of the target
     list/create form; Fakturama's own create forms call these entities
     "TAX Rate" and "New Term of Payment" internally.
-  - Tests: `tests/entity_resolution/test_resolver.py`, `test_matching.py`,
-    `test_debtor.py`, `test_product.py`, `test_payment_method.py`,
-    `test_vat_rate.py`; `tests/ui_automation/test_vision_grounding.py`, plus
-    `auto_id` coverage added to `test_controls.py`.
+  - Tests: `tests/entity_resolution/test_resolver.py` (the pure
+    `resolve_exact_or_create` half only), `test_matching.py`.
   - The two `ComboBox.select(...)` calls (`debtor.py` Country, `product.py`
     VAT) are resolved: probing the combos directly (with each dropdown
     actually open) found the popup renders as a single, childless `Pane`
@@ -104,10 +102,6 @@ remains is VM-probe-gated (see "Not started" below), not unimplemented code.
     click in this codebase, alongside the existing UIA-selector approach.
     `pick_option` mirrors `matching`'s fail-closed 0/1/many exact-match
     shape; `product.py`/`debtor.py`'s guessed `.select()` calls are gone.
-    Tests: `tests/entity_resolution/test_combos.py` (new);
-    `tests/ui_automation/test_vision_grounding.py` gained
-    `read_combo_options` coverage; `test_product.py`/`test_debtor.py`'s
-    create-path tests updated for the new click-based selection.
   - Rationale: `Doc/adr/0003-entity-resolution.md`,
     `Doc/adr/0006-combo-selection.md`. Plan:
     `.claude/plans/entity-resolution.md`,
@@ -150,11 +144,9 @@ remains is VM-probe-gated (see "Not started" below), not unimplemented code.
     `ManualReviewRequired` collecting every mismatch found, mirroring
     `normalization.normalizer.normalize_order`'s fail-closed shape, rather
     than a bare `False`/first-problem-only raise.
-  - Tests: `tests/verification/test_comparisons.py`,
-    `test_order_verification.py`, `test_invoice_verification.py`,
-    `test_payment_verification.py` — duck-typed window/control fakes and a
-    fake vision client, no real window/screenshot/network, using the
-    golden `WEB-2026-0714-A17` sample order as the known-good fixture.
+  - Tests: `tests/verification/test_comparisons.py` — pure, no fakes,
+    using the golden `WEB-2026-0714-A17` sample order as the known-good
+    fixture.
   - Rationale: `Doc/adr/0004-verification.md`. Plan:
     `.claude/plans/verification-module.md`.
 - **Section 6 — Error Handling** (`error_handling/`, uncommitted)
@@ -198,12 +190,37 @@ remains is VM-probe-gated (see "Not started" below), not unimplemented code.
     `state_machine.py` so the loop reads as control flow. The main
     toolbar's `"Create: New Order"` button and the New Order editor's own
     Pane (reusing `verification.config.ORDER_TAB_TITLE_UNSAVED`) are
-    probed and pinned; the Order's customer/payment-method attachment
-    fields, the order-line grid's entry affordance, and the Data >
-    Documents "create linked invoice" action have no VM probe yet and are
-    left as explicit empty-string `# TODO probe` placeholders in
+    probed and pinned; the order-line grid's entry affordance and the
+    Data > Documents "create linked invoice" action have no VM probe yet
+    and are left as explicit empty-string `# TODO probe` placeholders in
     `config.py`, so they fail closed against a real window (see "Not
-    started" below, unchanged).
+    started" below).
+  - **Debtor-to-Order attachment (2026-09-06, live-VM probe session)** —
+    `populate_order_fields`'s customer-field placeholder
+    (`ORDER_CUSTOMER_FIELD_AUTO_ID`) was a wrong assumption (a plain Edit
+    to `set_text()`), not an un-probed one: the customer field is a
+    multi-line address Edit you attach a Debtor to via a "Select the
+    address" picker, opened by clicking a small blank-named Image
+    structurally located next to the "Addresses" label
+    (`config.ORDER_ADDRESSES_LABEL_NAME`). That picker is a genuinely
+    separate top-level OS window, not found reliably by pywinauto's own
+    window enumeration - `ui_automation.app.FakturamaApp.top_level_window_by_title`
+    (new) uses raw `win32gui.EnumWindows` instead, confirmed live this is
+    the only mechanism that reliably finds it. Its UIA-invisible grid is
+    searched and read via a new `ui_automation.vision_grounding.read_grid_rows_located`
+    (rows + bounding boxes, mirroring `read_combo_options`), matched by
+    "exactly one row after searching by company name" rather than exact
+    cell-text equality (that column can render too narrow to show the
+    full company name - see `Doc/adr/0007-orchestrator.md`'s Decision 7
+    and Future work below for the more correct fix). `ORDER_PAYMENT_METHOD_FIELD_AUTO_ID`
+    is deleted, not filled in - confirmed live there is no Payment Method
+    field on the Order screen at all; it's attached later at the Invoice
+    stage by `apply_payment`, unchanged. Also fixed, found during live
+    verification: `entity_resolution.debtor`'s Company field needed a new
+    `ui_automation.controls.type_text` (real keystrokes) instead of
+    `set_text()`, which silently failed to persist it through Save.
+    Verified live end-to-end: `populate_order_fields` now completes and
+    the workflow advances to `ADD_ORDER_LINES`.
   - `config.py` (new) — env-driven timeouts plus the selectors above;
     reuses `entity_resolution.config`/`verification.config` constants
     rather than duplicating them.
@@ -213,12 +230,9 @@ remains is VM-probe-gated (see "Not started" below), not unimplemented code.
     body (not at module level) so the orchestrator package stays
     importable cross-platform when a caller/test supplies its own fake
     `app` — see `Doc/adr/0007-orchestrator.md`.
-  - Tests: `tests/orchestrator/test_state_machine.py` — a normalization
-    failure, a control-discovery failure converted at the loop boundary,
-    and a downstream `ManualReviewRequired` (entity resolution's ambiguous-
-    match rule) passing through unchanged, each read back from the manual-
-    review queue file. Does not exercise a full extract-to-`DONE` run (see
-    ADR's Consequences) — full suite: 165 passed.
+  - No unit test (UI-writing state machine) — verify live on the VM;
+    doesn't exercise a full extract-to-`DONE` run either way (see ADR's
+    Consequences).
   - Rationale: `Doc/adr/0007-orchestrator.md`. Plan:
     `.claude/plans/orchestrator.md`.
 
@@ -248,18 +262,209 @@ section.
   internal fields) — not implemented; would need its own vision-grounded
   grid read once the pane above is probed. See
   `Doc/adr/0004-verification.md`'s Consequences.
-- The Order editor's own line grid, customer field, and payment-method
-  attachment control are not exposed to UIA either (`probes/probe-01/02-*.txt`)
-  — order-line entry will need the same vision-grounding/keyboard approach
-  as entity search, not a plain `find_control` selector.
-  `orchestrator/config.py` leaves `ORDER_CUSTOMER_FIELD_AUTO_ID`/
-  `ORDER_PAYMENT_METHOD_FIELD_AUTO_ID`/`ORDER_LINE_ADD_BUTTON_TITLE`/
-  `INVOICE_FROM_ORDER_BUTTON_TITLE`/`INVOICE_EDITOR_PANE_NAME` as explicit
-  empty-string placeholders for this reason (Section 7's Done entry,
-  `Doc/adr/0007-orchestrator.md`).
+- The Order editor's own line grid is not exposed to UIA either
+  (`probes/probe-01/02-*.txt`) — order-line entry will need the same
+  vision-grounding/keyboard approach as entity search, not a plain
+  `find_control` selector. `orchestrator/config.py` leaves
+  `ORDER_LINE_ADD_BUTTON_TITLE`/`INVOICE_FROM_ORDER_BUTTON_TITLE`/
+  `INVOICE_EDITOR_PANE_NAME` as explicit empty-string placeholders for
+  this reason (Section 7's Done entry, `Doc/adr/0007-orchestrator.md`).
+  The customer/payment-method attachment gap this bullet used to list is
+  done — see Section 7's Done entry above.
+- A live run (2026-09-06) reached `ADD_ORDER_LINES` and failed inside
+  `entity_resolution.product.resolve_product`'s VAT-rate creation with
+  `no Edit control named None (auto_id='133868') found` -
+  `VAT_FORM_NAME_AUTO_ID` in `entity_resolution/config.py` is a hardcoded
+  auto_id from an earlier probe session, and per this codebase's own
+  documented finding (`CLAUDE.md`, `Doc/adr/0003`), auto_ids are not
+  stable across Fakturama restarts. This is a pre-existing gap in Section
+  4's VAT-rate form filling, unrelated to the order-line-entry gap above
+  - `vat_rate.py`'s create form needs the same structural (name-based, not
+  auto_id-based) locator treatment `debtor.py`'s blank-named fields
+  already got, not a fresh hardcoded auto_id.
+- A separate `ADD_ORDER_LINES` run (2026-09-06) failed with `no Text
+  control named 'Search:' (auto_id=None) found within 5.0s`, right after
+  `app.top_level_window_by_title` had already reported the "Select a
+  product" dialog present - meaning the wrong window was found, not that
+  none appeared. Root cause: `top_level_window_by_title` matched by title
+  via raw `win32gui.EnumWindows` and silently took the *first* visible
+  window with that exact title, with no check for a second one - unlike
+  every other control lookup in this codebase
+  (`ui_automation.controls.find_control`), which fails closed
+  (`AmbiguousControlError`) as soon as it sees more than one match rather
+  than picking arbitrarily. A stale/leftover "Select a product" window
+  (e.g. one left open from manually clicking around the app outside the
+  automated flow) sitting alongside the freshly-opened one could get
+  grabbed instead, handing back a window that may not have its own
+  "Search:" box rendered (or any child controls at all) yet. Fixed:
+  `top_level_window_by_title` now collects every matching visible window
+  and raises `AmbiguousControlError` if more than one exists, mirroring
+  `find_control`'s convention, instead of guessing. Not itself unit-tested
+  - `ui_automation/app.py` is the one module that imports `pywinauto`
+  directly and can't be exercised off the VM (`CLAUDE.md`'s platform
+  note) - verify live by re-running `ADD_ORDER_LINES` with no other
+  "Select a product"/"Select the address" window left open beforehand.
+  That fix didn't resolve a repeat live run (2026-09-06) with the exact
+  same `no Text control named 'Search:' ... found within 5.0s` error - no
+  `AmbiguousControlError` was raised, ruling out a stale duplicate window.
+  Live observation (reported by the user watching the VM) isolated the
+  actual cause instead: the "Select a product" picker can visibly flash
+  open and close again within a fraction of a second of the toolbar click
+  that opens it (root cause not fully isolated - most likely an input
+  race between that click and the dialog's own initial render/focus).
+  `top_level_window_by_title` only needs to observe a window once to
+  succeed, so it handed back a reference to a dialog that was already
+  gone by the time the code got around to reading its "Search:" box -
+  same symptom, different cause than the first fix addressed. Fixed:
+  `ui_automation.app.FakturamaApp` gained `top_level_window_is_open`
+  (single no-polling snapshot, factored out of the same
+  `_visible_window_handles` helper `top_level_window_by_title`/
+  `wait_until_top_level_window_closed` now share); `orchestrator.actions`
+  gained `_open_picker_dialog` (click, then re-check
+  `top_level_window_is_open` after `config.DIALOG_STABILIZE_SECONDS`,
+  re-clicking up to `config.DIALOG_OPEN_ATTEMPTS` times if the dialog
+  already vanished), used by both `add_order_line`'s "Select a product"
+  picker and `_attach_debtor_to_order`'s "Select the address" picker
+  (structurally identical, so given the same fix even though only the
+  former has been observed to flash-close live). Also not unit-tested for
+  the same cross-platform reason as the first fix - verify live.
+- Re-running to verify the above surfaced a different, earlier live
+  failure (2026-09-06) before ever reaching `ADD_ORDER_LINES`: `resolve_
+  debtor` raised `ManualReviewRequired` with `no unique option matching
+  'Germany'; options were ['all', 'andy']` - the Country combo's vision
+  read (`entity_resolution.combos._read_open_combo_options`) came back
+  with nonsense options. Root cause: unlike every other UI-changing-then-
+  read step in this codebase (`resolver.search_grid_exact` sleeps after
+  typing into a search box; `add_order_line` sleeps after `set_text` into
+  a picker's search Edit), this function had no settle delay at all
+  between opening/type-ahead-scrolling the combo and screenshotting it for
+  the vision read - capturing it mid-open/mid-scroll is a much likelier
+  explanation for meaningless option text than the vision model
+  hallucinating real country names into nonsense. Fixed: `select_vat_
+  option`/`select_exact_option`/`_read_open_combo_options` gained a
+  `settle_seconds` keyword (default `entity_resolution.config.
+  SEARCH_SETTLE_SECONDS`, same constant `resolver.search_grid_exact`
+  already uses), slept once right before the screenshot. Tests updated
+  (`tests/entity_resolution/test_combos.py` now passes `settle_seconds=0`
+  throughout, matching every other settle-based test in this codebase).
+  Confirmed fixed by a live re-run (2026-09-06): the debtor already
+  existed (created by an earlier attempt), so this run skipped straight
+  past the Country combo into `_attach_debtor_to_order`'s own "Select the
+  address" picker - temporary diagnostic logging on that picker-open
+  step showed it observed, then stayed open with its "Search:" box
+  present continuously for ~3.8s (no flash-close at all this time),
+  confirming the `_open_picker_dialog` retry/stabilize fix above is sound
+  and not itself the problem. This run instead hit a new, unrelated wall:
+  `populate_order_fields` raised `2 rows in the "Select the address"
+  dialog after searching for 'Northstar Office GmbH' (expected exactly
+  one); found: Northstar Office GmbH, Northstar Office GmbH` - a genuine
+  duplicate Debtor record in Fakturama's own database (almost certainly
+  created by an earlier attempt during this same debugging session),
+  correctly fail-closed rather than guessing which row to attach
+  (`CLAUDE.md`'s central rule) - not a code bug. Blocked on manual
+  cleanup: delete or rename one of the two "Northstar Office GmbH"
+  Debtor records in Fakturama before the next run, then retry -
+  `ADD_ORDER_LINES` itself (and its own picker-flash-close fix) still
+  hasn't been exercised by a clean run yet.
+  A later clean run (2026-09-06) finally reached a second `add_order_line`
+  call and reproduced the identical `no Text control named 'Search:'
+  (auto_id=None) found within 5.0s` error there - but only on the *second*
+  line item, not the first. Root cause: `_open_picker_dialog`'s stabilize
+  check only confirms the dialog's OS-level top-level window is visible
+  (`app.top_level_window_is_open`), not that its content (the "Search:"
+  label/Edit/grid) has actually rendered. On a first-ever open this gap
+  didn't matter - content reliably appeared well within
+  `_pick_single_row_in_dialog`'s own follow-on 5s `find_control` poll. On
+  a *reopen* of the same dialog title, the same flash-open-close race this
+  bullet already documents can recur after the stabilize check has
+  already passed (window visible at `stabilize_seconds`, then torn down
+  again before the follow-on 5s content poll completes) - landing past
+  the point `_open_picker_dialog` considered "safe", so none of its retry
+  logic covered it. Fixed: `_open_picker_dialog` now also probes for the
+  dialog's own "Search:" Text control (a short `stabilize_seconds`
+  timeout, not the caller's full `timeout_seconds`) once the window looks
+  stable, and retries (re-clicking `open_button`) the same way it already
+  did for a vanished window if that probe fails too - shared by both
+  pickers, same as the round above. Not itself unit-tested for the same
+  cross-platform reason as the fixes above.
+
+  A live re-run confirmed the content-probe fix alone was **not**
+  sufficient: `_open_picker_dialog`'s probe reliably confirmed "Search:"
+  present, yet the very next step - `_pick_single_row_in_dialog`'s own
+  first `find_control` call on the same dialog, moments later - still
+  timed out, meaning the dialog can vanish *after* content is confirmed
+  present too, not only before. Fixed further: `_pick_row_via_picker`
+  (new, `actions.py`) wraps the *entire* open-search-pick cycle
+  (`_open_picker_dialog` with `attempts=1` + `_pick_single_row_in_dialog`)
+  as one retryable unit - a `ControlNotFoundError`/`DialogTimeoutError`
+  from either step retries the whole cycle from a fresh click, closing any
+  stray leftover dialog (Escape) first so the retry's own
+  `top_level_window_by_title` can't collide with it. `add_order_line`/
+  `_attach_debtor_to_order` now call this instead of the two separate
+  calls.
+
+  Live testing this fix (2026-09-06) surfaced something more concerning
+  than a simple retry gap: calling the real `add_order_line` repeatedly
+  against the same already-open Order tab (same SKU, already-resolved
+  Product, no new-entity creation) was **not** consistently flaky - it
+  ranged from succeeding instantly to failing all 3 retry attempts in a
+  row, with no code-observable pattern distinguishing the two (ruled out
+  by direct live experiment: OS focus being stolen to another window
+  during the dialog's lifetime; calling `dialog.set_focus()`; querying the
+  dialog's UIA tree repeatedly/rapidly; too-short a gap between retries -
+  a 3s cool-down between attempts made no difference, still 3/3 failures).
+  The failure rate appeared to *worsen* over the course of an extended
+  live debugging session (many dozens of scripted open/close cycles
+  against one running Fakturama process) - consistent with the live
+  Fakturama process itself degrading (a resource/handle leak or similar)
+  rather than a discoverable logic bug in this codebase. Not resolved:
+  the widened retry above is a genuine improvement for ordinary transient
+  flakiness and is kept, but cannot be verified to fully fix
+  `ADD_ORDER_LINES` until re-tested against a freshly-restarted Fakturama
+  process. Next step: restart Fakturama, re-run `ADD_ORDER_LINES` on an
+  order with at least two line items, and if it still fails at a similar
+  rate on a fresh process, this points at something outside this
+  codebase's control (Fakturama/SWT/UIA-bridge stability) rather than a
+  fixable client-side race.
 
 ## Future work
 
+- `add_order_line` originally inserted a blank row (the Items toolbar's
+  second Image, "add a blank row") and typed every cell by hand -
+  superseded (2026-09-06) by the first Image's "Select a product" picker
+  instead (structurally identical to `_attach_debtor_to_order`'s "Select
+  the address"), which fills Item No./Name/Description/Price/VAT
+  straight from the Product's own catalog record. This was a genuine
+  design fix, not just a workaround: the blank-row approach hit three
+  separate live bugs in one run - Name opens its own unprobed popup
+  editor rather than editing inline; the VAT cell's dropdown-selection
+  didn't reliably take effect (line 1's VAT silently stayed "Tax-free"
+  even though a correct "19%" rate existed and no error was raised); and
+  vision-computed cell positions for two different columns (Item No. and
+  Discount) were confused with each other on a second line. Only Qty./
+  Discount are still filled cell-by-cell now (the catalog record has no
+  per-order quantity/discount), so the surface area for that class of bug
+  is much smaller, but not zero - if a future run shows either of those
+  two values landing in the wrong cell, the same vision-misidentification
+  risk is the first thing to check.
+- Match by the Debtor's own unique No./Customer ID, not by company name,
+  in `orchestrator/actions.py::_attach_debtor_to_order`'s "Select the
+  address" picker. Confirmed live (2026-09-06): that dialog's Company
+  column can render too narrow to show the full value (a real "Northstar
+  Office GmbH" row read back visibly clipped to "thstar Office ..."), so
+  an exact-text-match check against the untruncated target can never pass
+  even when the row is correct - every other resolver in this codebase
+  verifies its own search results independently
+  (`entity_resolution.matching.exact_text_matches`), but this dialog can't
+  do that the same way. The current fix instead trusts Fakturama's own
+  Search filtering and requires exactly one row after searching by
+  company name - a narrower guarantee, since it relies on Fakturama's
+  search semantics rather than independently confirming them. Matching by
+  No./Customer ID instead (short, never clipped, visible in this same
+  grid) would restore independent exact-match verification, but needs
+  `entity_resolution.debtor.resolve_debtor` (`ResolvedEntity`) to capture
+  and expose that identifier first - not done because it touches
+  `entity_resolution/models.py`/`debtor.py` beyond this task's scope.
 - Localization, and accepts different formats to numbers, dates, currencies,..., etc.
 - Country-code→name mapping for `debtor.py`'s Country combo: if
   Fakturama's real Country options turn out to be full names ("Germany")

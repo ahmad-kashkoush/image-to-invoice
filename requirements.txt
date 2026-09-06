@@ -2,6 +2,19 @@
 # run inside the Windows 11 ARM VM described in README.md, not on macOS.
 pywinauto>=0.6.8
 
+# ui_automation.app.FakturamaApp.top_level_window_by_title uses win32gui
+# directly: confirmed live that Fakturama's "Select the address" dialog
+# (a genuinely separate top-level window) is not reliably found by
+# pywinauto's own window enumeration, but raw win32gui.EnumWindows always
+# finds it. Previously only a transitive pywinauto dependency on Windows;
+# declared explicitly now that a module imports it directly.
+pywin32>=306
+
+# pywinauto's own capture_as_image() (used by ui_automation.vision_grounding
+# for vision-grounded reads of Fakturama's UIA-invisible grids/combos)
+# silently returns None without this installed, rather than raising.
+Pillow>=10.0
+
 # Vision LLM extraction (Claude Haiku 4.5). Cross-platform - works on macOS
 # for developing/testing extraction and normalization without the VM.
 anthropic>=0.69
