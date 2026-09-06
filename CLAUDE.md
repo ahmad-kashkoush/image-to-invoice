@@ -29,9 +29,12 @@ starting new work — it tracks what's real vs. still a stub.
 **Per-section wrap-up ritual** (do all of these when a section moves from
 stub to real, not just the code):
 1. Implement the section.
-2. Add an "Implementation notes" subsection to the relevant part of
-   `Doc/Design.md` (see the Normalization & Validation section for the
-   pattern) — what was actually decided, not a restatement of the design.
+2. Add a section to `Doc/implementation-notes.md` — what was actually
+   decided, not a restatement of the design (see that file's existing
+   sections for the pattern: one `##` per module or workflow state, oldest
+   first). These used to live in `Doc/Design.md`; they were split out so the
+   design doc stays at its delivered size. Leave a one-line pointer in the
+   relevant `Doc/Design.md` section only if that section has none yet.
 3. Write an ADR under `Doc/adr/NNNN-title.md` for any decision that wasn't
    fully dictated by the design doc or task description (see
    `Doc/adr/0001-normalization-and-validation.md` for the template:

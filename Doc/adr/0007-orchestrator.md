@@ -21,7 +21,7 @@ doc or the task description:
    entering a line into the order's own item grid, attaching an
    already-resolved Debtor/Payment Method to the order, creating the linked
    Invoice via Data > Documents, and applying payment - have no VM probe at
-   all (`TODo.md`'s "Not started" section), unlike every *read-back*
+   all (`TODo.md`'s debugging log), unlike every *read-back*
    selector `verification/config.py` already pins.
 2. `run_workflow` must catch failures from every section it composes, not
    only its own; `entity_resolution`/`verification` raise

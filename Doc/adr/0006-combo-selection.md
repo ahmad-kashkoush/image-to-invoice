@@ -6,8 +6,7 @@ Accepted
 
 ## Context
 
-Section 4's last open item (`.claude/plans/entity-resolution-residual.md`)
-was the two guessed `ComboBox.select(...)` calls — product's VAT combo
+Section 4's last open item was the two guessed `ComboBox.select(...)` calls — product's VAT combo
 (`product.py`) and debtor's Country combo (`debtor.py`) — left in place
 since Doc/adr/0003 because neither combo's real option strings had been
 confirmed. Probing them directly, with each dropdown actually held open

@@ -1,8 +1,13 @@
 
 Tracks progress against `Doc/Design.md`'s six components plus the
-Orchestrator. Scaffolding (module layout, docstrings, signatures) exists for
-every component; Sections 1-7 all have real implementations now — what
-remains is VM-probe-gated (see "Not started" below), not unimplemented code.
+Orchestrator. All six components and the Orchestrator have real
+implementations, and the full pipeline ran end to end on the VM on
+2026-09-06 — order image through all ten workflow states to `DONE`, with the
+Invoice saved and verified (`INV000001`) and no manual-review entry.
+
+What is actually still open is in "Next" below. The long section after it is
+a chronological debugging log, kept for its findings; entries there are
+historical unless "Next" repeats them.
 
 ## Done
 
@@ -103,9 +108,7 @@ remains is VM-probe-gated (see "Not started" below), not unimplemented code.
     `pick_option` mirrors `matching`'s fail-closed 0/1/many exact-match
     shape; `product.py`/`debtor.py`'s guessed `.select()` calls are gone.
   - Rationale: `Doc/adr/0003-entity-resolution.md`,
-    `Doc/adr/0006-combo-selection.md`. Plan:
-    `.claude/plans/entity-resolution.md`,
-    `.claude/plans/entity-resolution-residual.md`.
+    `Doc/adr/0006-combo-selection.md`.
 - **Section 5 — Verification** (`verification/`, uncommitted)
   - `order_verification.py::verify_order_saved` — confirms the Order's own
     tab/pane title no longer reads `"New Order"` (an assigned order number
@@ -147,8 +150,7 @@ remains is VM-probe-gated (see "Not started" below), not unimplemented code.
   - Tests: `tests/verification/test_comparisons.py` — pure, no fakes,
     using the golden `WEB-2026-0714-A17` sample order as the known-good
     fixture.
-  - Rationale: `Doc/adr/0004-verification.md`. Plan:
-    `.claude/plans/verification-module.md`.
+  - Rationale: `Doc/adr/0004-verification.md`.
 - **Section 6 — Error Handling** (`error_handling/`, uncommitted)
   - `manual_review.py::route_to_manual_review` — appends one JSON object
     per line to a single queue file (`out/manual_review_queue.jsonl` by
@@ -169,8 +171,7 @@ remains is VM-probe-gated (see "Not started" below), not unimplemented code.
   - Tests: `tests/error_handling/test_manual_review.py` — JSONL
     write/append, `out_dir` auto-creation, the fail-safe path (unwritable
     `out_dir` still returns `None`), and the `details` forwarding hook.
-  - Rationale: `Doc/adr/0005-error-handling.md`. Plan:
-    `.claude/plans/error-handling.md`.
+  - Rationale: `Doc/adr/0005-error-handling.md`.
 - **Section 7 — Orchestrator** (`orchestrator/`, uncommitted)
   - `state_machine.py::run_workflow(image_path, *, app=None, client=None,
     out_dir=None, settle_seconds=...)` — the 9-state loop (EXTRACT →
@@ -233,8 +234,7 @@ remains is VM-probe-gated (see "Not started" below), not unimplemented code.
   - No unit test (UI-writing state machine) — verify live on the VM;
     doesn't exercise a full extract-to-`DONE` run either way (see ADR's
     Consequences).
-  - Rationale: `Doc/adr/0007-orchestrator.md`. Plan:
-    `.claude/plans/orchestrator.md`.
+  - Rationale: `Doc/adr/0007-orchestrator.md`.
 
 - **Section 7b — `SAVE_AND_VERIFY_INVOICE`, the tenth state** (2026-09-06).
   The workflow ended after applying and verifying payment and never saved
@@ -276,16 +276,30 @@ remains is VM-probe-gated (see "Not started" below), not unimplemented code.
 
 ## Next
 
-All six components and the orchestrator now have real implementations.
-What remains is VM-probe-gated (see "Not started" below), not a new
-section.
+Everything below is genuinely open. Nothing here blocks a run of the golden
+sample order, which completes end to end today.
 
+- **Known gaps against the task specification** — the steps the build does
+  not cover (Order Date never written; `Data > Documents` not used as the
+  verification source; Debtor E-Mail/Telephone/address-roles/Miscellaneous;
+  payment-code mapping; `VAT 19%` naming and its E-Invoice code; Product
+  Description/cost/Stock; the Debtor picker's one-row match; addresses never
+  read back; the stubbed OCR pass; currency never compared). Each is listed
+  with its reasoning under **Known gaps** in `README.md`, and `README.md`'s
+  Next Steps ranks them — that list is the single source of truth for this,
+  not a second copy here.
+- **`Data > Documents` is unprobed** — the one screen with no VM probe at
+  all. Tasks 4.5/5.5 prescribe it as an independent second check on the
+  saved Order and Invoice; verification currently reads the open editor's
+  own fields back instead. Probe it with `spikes/uia_probe_editor.py`, then
+  add a vision-grounded grid read (its rows will be UIA-invisible like every
+  other Fakturama list). See `Doc/adr/0004-verification.md`'s Consequences.
 - **VM verification needed**: `add_order_line`'s Qty./Discount fill step
   (`orchestrator/actions.py`) reads both columns from a single screenshot
   of the Items grid (`vision_grounding.read_active_row_cells`), assuming
   both fit in the visible viewport at once. On the dev machine used for
-  the 2026-09-06 VAT-duplicate debugging session (see "Not started"
-  below), the grid has too many columns (Pos./Qty./Item No./Picture/Name/
+  the 2026-09-06 VAT-duplicate debugging session (see the debugging
+  log below), the grid has too many columns (Pos./Qty./Item No./Picture/Name/
   Description/VAT/U.Price/Discount/Price) to show Qty. and Discount
   together — confirmed live: at every horizontal scroll position tried,
   one or the other column always fell outside the captured control's
@@ -299,39 +313,51 @@ section.
   default scroll position, scroll right, read Discount separately) or
   this was dev-machine-only. Update: a later clean run in this same
   session (fresh Fakturama process, both line items added end-to-end, see
-  "Not started" below) did *not* hit this - Qty. and Discount were both
+  the debugging log below) did *not* hit this - Qty. and Discount were both
   visible together that time. Not reproduced a second time, so leaning
   towards this having been a transient scroll-position artifact of the
   earlier debugging session rather than a fixed viewport constraint - but
   still unverified on the real VM, so leaving this open.
 
-## Not started / not yet stubbed
+## Live debugging log (chronological)
 
-- Data > Documents, the linked Invoice editor, and the Invoice's payment
-  controls (paid checkbox, payment date, Value) have **no VM probe at
-  all** — `verification/config.py` leaves their selectors as explicit
-  empty-string placeholders (see Section 5's Done entry and
-  `Doc/adr/0004-verification.md`). The Order editor's own fields (Cust.
+Kept for its findings, not as a work list: every entry below is historical
+unless it also appears under "Next" above. Entries are in the order they
+were hit, and later ones frequently resolve earlier ones — read a bullet to
+its end before treating it as still open.
+
+- **Mostly resolved.** Data > Documents, the linked Invoice editor, and the
+  Invoice's payment controls (paid checkbox, payment date, Value) had **no
+  VM probe at all** — `verification/config.py` left their selectors as
+  explicit empty-string placeholders (see Section 5's Done entry and
+  `Doc/adr/0004-verification.md`). The Invoice editor and its payment
+  controls have since been probed and pinned (the `INVOICE_*` constants;
+  no empty-string placeholder remains in any `config.py`), and both are
+  exercised by the end-to-end run. Only `Data > Documents` is still
+  unprobed — promoted to "Next" above. The Order editor's own fields (Cust.
   Ref./Total Gross/Discount/VAT/Total, and its tab-title-as-order-number
   signal) are done — probing found their `auto_id`s are session-unstable
   but their accessible names are not, so Section 5 selects them by name.
   Use `spikes/uia_probe_editor.py <keyword>` (or a full
-  `spikes/uia_probe.py` dump — see `.claude/plans/entity-resolution.md`'s
-  Gate section for why a full dump beats a keyword-filtered one for
-  blank-named controls) against a live saved Order, Data > Documents, and
+  `spikes/uia_probe.py` dump, which beats a keyword-filtered one for
+  blank-named controls — those can only be identified by their structural
+  context, which a filtered dump cuts away) against a live saved Order,
+  Data > Documents, and
   a linked Invoice (including its payment area) to fill these in.
-- Verifying via Data > Documents itself (Task 4.5/5.5's own prescribed
-  check — a second, independent read distinct from reading the editor's
-  internal fields) — not implemented; would need its own vision-grounded
-  grid read once the pane above is probed. See
+- **Still open — see "Next".** Verifying via Data > Documents itself (Task
+  4.5/5.5's own prescribed check — a second, independent read distinct from
+  reading the editor's internal fields) — not implemented; would need its
+  own vision-grounded grid read once the pane above is probed. See
   `Doc/adr/0004-verification.md`'s Consequences.
-- The Order editor's own line grid is not exposed to UIA either
-  (`probes/probe-01/02-*.txt`) — order-line entry will need the same
+- **Resolved.** The Order editor's own line grid is not exposed to UIA
+  either (`probes/probe-01/02-*.txt`) — order-line entry needed the same
   vision-grounding/keyboard approach as entity search, not a plain
-  `find_control` selector. `orchestrator/config.py` leaves
+  `find_control` selector. `orchestrator/config.py` left
   `ORDER_LINE_ADD_BUTTON_TITLE`/`INVOICE_FROM_ORDER_BUTTON_TITLE`/
   `INVOICE_EDITOR_PANE_NAME` as explicit empty-string placeholders for
-  this reason (Section 7's Done entry, `Doc/adr/0007-orchestrator.md`).
+  this reason (Section 7's Done entry, `Doc/adr/0007-orchestrator.md`); all
+  three are filled in now, and line entry runs through the "Select a
+  product" picker (see Future work's first entry).
   The customer/payment-method attachment gap this bullet used to list is
   done — see Section 7's Done entry above.
 - A live run (2026-09-06) reached `ADD_ORDER_LINES` and failed inside
@@ -674,8 +700,7 @@ section.
   been tried against a live window yet): the captured screenshot's pixels
   map 1:1 to screen coordinates (no DPI scaling), and a combo's dropdown
   renders within `main_window`'s bounding rectangle rather than
-  overflowing it — see `.claude/plans/entity-resolution-residual.md`'s
-  "Known limitations".
+  overflowing it — see `Doc/adr/0006-combo-selection.md`.
 - Rich partial-state capture for manual review (deferred from Section 6,
   `Doc/adr/0005-error-handling.md`): extend `ManualReviewRequired` with an
   optional payload (e.g. `details`), thread it through the ~10 existing

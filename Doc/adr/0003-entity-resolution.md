@@ -151,8 +151,8 @@ should match verbatim.
   is implemented. `payment_method.resolve_payment_method`'s create path
   raises a specific `RuntimeError` rather than `NotImplementedError`,
   since its search half *is* real - only creation is blocked. Both name the
-  exact gap and point at `.claude/plans/entity-resolution.md`'s "Remaining
-  probe gap" section for what to capture next.
+  exact gap in their own error message, so the next probe session knows
+  what to capture.
 - `ComboBox.select(...)` calls in `debtor.py` (Country) and `product.py`
   (VAT) use option-string guesses (e.g. `f"{item.vat_percent}%"`) that were
   never verified against Fakturama's actual dropdown contents - the combos
