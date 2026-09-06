@@ -19,7 +19,7 @@ The recording below is this project's "annotated screenshots or short
 recording" deliverable — one continuous run from the order image to a
 saved, verified Invoice.
 
-https://github.com/user-attachments/assets/8baf52bf-507e-4360-9574-01e644c6cdeb
+https://github.com/user-attachments/assets/2cf5215d-e279-4c58-830c-274da4966360
 
 
 ## Setup
