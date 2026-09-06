@@ -13,6 +13,10 @@ than continuing silently.
 
 Out of scope: Delivery, Correction, and Dunning documents.
 
+## Demo
+
+<video src="Assets/Demo.mp4" controls width="600"></video>
+
 ## Setup
 
 If you're using Claude Code, run the `/setup` skill (`.claude/skills/setup/`)
