@@ -16,6 +16,11 @@ dependencies = [
     # Loads ANTHROPIC_API_KEY (and any other secret) from a local .env file
     # so it doesn't have to be set as a shell env var every session.
     "python-dotenv>=1.0",
+    # Grid screenshots: encoding them for the vision reads, and measuring
+    # their separator lines in ui_automation.grid_geometry. Arrives with
+    # pywinauto anyway (capture_as_image returns a PIL Image), but this
+    # package imports it directly, so it's declared directly.
+    "pillow>=10",
 ]
 
 [project.optional-dependencies]

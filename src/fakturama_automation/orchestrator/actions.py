@@ -712,7 +712,39 @@ def save_order(app: Any, window: Any) -> None:
     """
     main_window = app.main_window()
     controls.focus(main_window)
+    _click_save(main_window)
+
+
+def _click_save(main_window: Any) -> None:
+    """Click the main toolbar's shared Save button.
+
+    It saves whichever editor is currently active, so every caller is
+    responsible for that editor being the active tab before calling -
+    which is the whole difference between save_order and save_invoice.
+    """
     controls.find_control(main_window, "Button", name=entity_config.SAVE_BUTTON_TITLE).click_input()
+
+
+def save_invoice(app: Any, invoice_window: Any) -> None:
+    """Re-activate the Invoice editor and save it.
+
+    Unlike save_order, this cannot just click Save: the toolbar button
+    acts on whichever editor is active, and by the time this runs the
+    Order editor is also open and verify_payment_applied has been reading
+    controls in between. `_reactivate_editor` is the established way to
+    make an editor's own content current again (and to prove it worked
+    rather than assume it) - probing for the Invoice's Cust.Ref. field,
+    which is unambiguous here because Eclipse only exposes the *active*
+    tab's contents to UI Automation, so the Order editor's identically
+    named field is not visible while the Invoice is active.
+
+    Saving is what actually creates the Invoice row: confirmed live that
+    payment applied to an unsaved editor never reached the database at
+    all, so this is a real state, not a formality.
+    """
+    main_window = app.main_window()
+    _reactivate_editor(main_window, invoice_window, probe_name=verification_config.INVOICE_CUST_REF_EDIT_NAME)
+    _click_save(main_window)
 
 
 def create_linked_invoice(app: Any, order_window: Any, *, client: Any = None) -> Any:

@@ -43,6 +43,15 @@ ORDER_ITEMS_GRID_COLUMNS = ["Item No.", "Qty.", "U.Price", "VAT", "Discount", "P
 # -- Invoice editor -----------------------------------------------------------
 # Created directly from the Order; shares its layout and inherited pricing mode.
 
+# Same "New X until saved" pattern as ORDER_TAB_TITLE_UNSAVED: the tab reads
+# "New Invoice" until saved, then becomes the assigned invoice number - the
+# persistence signal verify_invoice_saved checks first. Deliberately the same
+# literal as orchestrator/config.py's INVOICE_EDITOR_PANE_NAME, which uses it
+# to *locate* the freshly created (still unsaved) pane; declared separately
+# rather than imported because verification must not depend on the
+# orchestrator - that dependency runs the other way.
+INVOICE_TAB_TITLE_UNSAVED = "New Invoice"
+
 INVOICE_CUST_REF_EDIT_NAME = "Cust.Ref."
 INVOICE_TOTAL_EDIT_NAME = "Total"
 INVOICE_ITEMS_GRID_COLUMNS = ORDER_ITEMS_GRID_COLUMNS

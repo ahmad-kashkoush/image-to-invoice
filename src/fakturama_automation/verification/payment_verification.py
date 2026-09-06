@@ -39,6 +39,22 @@ def verify_payment_applied(invoice_window: Any, normalized_order: NormalizedOrde
     payment date and Value all match; otherwise raises
     ManualReviewRequired with every mismatch found, not just the first.
     """
+    problems = payment_problems(invoice_window, normalized_order)
+    if problems:
+        raise ManualReviewRequired(_STEP, "; ".join(problems))
+    return True
+
+
+def payment_problems(invoice_window: Any, normalized_order: NormalizedOrder) -> list[str]:
+    """Every payment-field mismatch between the Invoice and the normalized
+    order, as human-readable strings ([] if it all matches).
+
+    Split out from verify_payment_applied so invoice_verification.
+    verify_invoice_saved can re-run exactly these same checks *after* the
+    save and fold their results into its own aggregated failure, rather
+    than either duplicating them or catching a ManualReviewRequired raised
+    under the wrong step name.
+    """
     problems: list[str] = []
 
     method_text = readback.field_value(readback.payment_method_combo(invoice_window))
@@ -72,6 +88,4 @@ def verify_payment_applied(invoice_window: Any, normalized_order: NormalizedOrde
     # so their absence already is "nothing was invented" - nothing more to
     # check.
 
-    if problems:
-        raise ManualReviewRequired(_STEP, "; ".join(problems))
-    return True
+    return problems

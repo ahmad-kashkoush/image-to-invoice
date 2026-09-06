@@ -22,6 +22,12 @@ States, in order:
 9. APPLY_AND_VERIFY_PAYMENT: apply payment method (and, if status is
    PAID, payment date and full invoice value), then verify via
    verification.payment_verification.
+10. SAVE_AND_VERIFY_INVOICE: save the Invoice and verify it persisted with
+    its payment data intact, via verification.invoice_verification.
+    verify_invoice_saved. Its own state rather than part of the step
+    above, for the same reason SAVE_AND_VERIFY_ORDER is separate from
+    populating the Order: everything before this point only proves what an
+    open editor holds, and an editor is not the database.
 
 Every state either advances or raises ManualReviewRequired; run_workflow
 catches it (and any control-discovery failure from ui_automation, converted
@@ -51,7 +57,10 @@ from fakturama_automation.ui_automation.exceptions import (
     DialogTimeoutError,
     WindowFocusError,
 )
-from fakturama_automation.verification.invoice_verification import verify_invoice_matches_order
+from fakturama_automation.verification.invoice_verification import (
+    verify_invoice_matches_order,
+    verify_invoice_saved,
+)
 from fakturama_automation.verification.order_verification import verify_order_saved
 from fakturama_automation.verification.payment_verification import verify_payment_applied
 
@@ -68,6 +77,7 @@ class WorkflowState(enum.Enum):
     SAVE_AND_VERIFY_ORDER = "save_and_verify_order"
     CREATE_AND_VERIFY_INVOICE = "create_and_verify_invoice"
     APPLY_AND_VERIFY_PAYMENT = "apply_and_verify_payment"
+    SAVE_AND_VERIFY_INVOICE = "save_and_verify_invoice"
     DONE = "done"
 
 _UI_DISCOVERY_ERRORS = (
@@ -144,6 +154,10 @@ def run_workflow(
         state = WorkflowState.APPLY_AND_VERIFY_PAYMENT
         actions.apply_payment(app, invoice_window, order, client=client)
         verify_payment_applied(invoice_window, order, client=client)
+
+        state = WorkflowState.SAVE_AND_VERIFY_INVOICE
+        actions.save_invoice(app, invoice_window)
+        verify_invoice_saved(invoice_window, order, client=client)
 
         return WorkflowState.DONE
     except ManualReviewRequired as error:

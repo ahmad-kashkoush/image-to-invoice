@@ -236,6 +236,44 @@ remains is VM-probe-gated (see "Not started" below), not unimplemented code.
   - Rationale: `Doc/adr/0007-orchestrator.md`. Plan:
     `.claude/plans/orchestrator.md`.
 
+- **Section 7b — `SAVE_AND_VERIFY_INVOICE`, the tenth state** (2026-09-06).
+  The workflow ended after applying and verifying payment and never saved
+  the Invoice, so a run could report `DONE` with the payment data living
+  only in an open editor and no Invoice row in the database at all.
+  Confirmed live across two runs of the same image: one left no
+  `FKT_DOCUMENT` Invoice row and the tab still titled "New Invoice", the
+  other persisted as `INV000001` (`PAID=TRUE`, `PAYDATE='2026-07-18'`,
+  `PAIDVALUE=678.3`) only because a human clicked Save afterwards - and
+  the automation's own result was identical in both cases.
+  - `orchestrator/state_machine.py` — new `WorkflowState.
+    SAVE_AND_VERIFY_INVOICE` between `APPLY_AND_VERIFY_PAYMENT` and
+    `DONE`; its own act/verify pair, mirroring `SAVE_AND_VERIFY_ORDER`,
+    so a save failure files under its own step name rather than the
+    payment step's.
+  - `orchestrator/actions.py` — new `save_invoice`, which re-activates the
+    Invoice tab via the existing `_reactivate_editor` retry helper before
+    clicking Save (the toolbar button acts on whichever editor is active,
+    and two editors are open by then). The shared toolbar click moved into
+    a private `_click_save` used by `save_order` too.
+  - `verification/invoice_verification.py` — new `verify_invoice_saved`:
+    assigned invoice number, Cust.Ref., Total, and every payment field.
+    Deliberately no item-grid re-read (a vision call; the lines were
+    verified in the immediately preceding state and a save doesn't edit
+    lines - Total is the aggregate signal).
+  - `verification/payment_verification.py` — `payment_problems` split out
+    of `verify_payment_applied` so both callers run identical checks and
+    the post-save failure aggregates under the right step name.
+  - `verification/config.py` — new `INVOICE_TAB_TITLE_UNSAVED`, alongside
+    the existing `ORDER_TAB_TITLE_UNSAVED`.
+  - No unit test (UI-writing state) — verified live instead.
+  - **Verified live (2026-09-06)**: a full run from the order image
+    completed end to end through the new state — the Invoice was saved by
+    the automation and verified, no manual-review entry. `save_invoice`'s
+    tab re-activation found the Invoice's "Cust.Ref." probe correctly
+    despite the Order editor's identically named field, confirming the
+    "Eclipse exposes only the active tab" premise it relies on.
+  - Rationale: `Doc/adr/0008-save-and-verify-invoice.md`.
+
 ## Next
 
 All six components and the orchestrator now have real implementations.
@@ -502,6 +540,90 @@ section.
   VAT/totals (`CHR-ERG-01` x2 @ $250 + `MAT-DESK-02` x3 @ $40 = $620.00
   gross), no manual-review entry, no duplicate rows, no duplicate VAT
   records.
+
+- A full run (2026-09-06) finally reached `SAVE_AND_VERIFY_ORDER` and
+  routed one aggregated entry to `out/manual_review_queue.jsonl`. Three
+  independent bugs, all now fixed; the first masked the other two.
+
+  **1. Every order-level field read back its own label, not its value.**
+  `verification.readback.read_field_text` used `control.window_text()`.
+  pywinauto's uia `EditWrapper` doesn't override that - it resolves to
+  `UIAElementInfo.rich_text`, which asks for the TextPattern and falls
+  back to the element's *Name* when unavailable. Fakturama's SWT edits
+  have no TextPattern, so Cust.Ref. read back as `'Cust.Ref.'`, Total as
+  `'Total'`, and so on: four comparisons that compared a label against a
+  value and could never pass, regardless of what was in the order. Visible
+  in `probes/probe-02-fill-create-order.txt` all along (it dumps `Edit -
+  'Cust.Ref.'` for an editor that had just been filled), and confirmed
+  live against the saved order: `window_text()` → `'Cust.Ref.'`,
+  `get_value()` → `'WEB-2026-0714-A17'`. Fixed: new
+  `readback.field_value()` reads the ValuePattern (`get_value()`, with
+  `legacy_properties()["Value"]` as fallback) and raises rather than
+  degrading to the name if a control exposes neither.
+
+  **2. Product prices were written net into Fakturama's gross field.**
+  `entity_resolution.product._create_product` typed `item.unit_net_price`
+  straight into the Product editor's `"Price (gross)"` field. Fakturama
+  derives net back out by dividing by (1 + VAT), so a 250.00 net chair
+  became $210.08 a unit and $378.15 for two (exactly 250/1.19 and
+  450/1.19), and the order's own totals came out as $411.76 net / $78.24
+  VAT / $490.00 gross against an expected 570.00 / 108.30 / 678.30. Note
+  the two halves were each individually right: `_set_pricing_mode_net`
+  correctly switches the *Order* to Net, and the *Product* form is
+  genuinely gross - nothing converted between them. Fixed: new
+  `normalization.validators.gross_from_net` (the single home for that
+  formula, same rule as `recompute_line_total`), applied at the one write
+  site; the `"Price (gross)"` label is now a named config constant
+  (`PRODUCT_PRICE_GROSS_LABEL_NAME`) that doubles as the price-basis check
+  - a net-price-configured Fakturama would label it `"Price (net)"` and
+  `find_control` would fail closed instead of writing the wrong basis.
+
+  **3. The second line's Qty. write silently landed nowhere.**
+  `MAT-DESK-02` stayed at Fakturama's default `1.00` while line 1's
+  `2` took, with nothing raised - `_fill_grid_text_cell` clicks a screen
+  coordinate computed from a vision read and types, so a write that misses
+  the cell leaves no trace at all. Ruled out by arithmetic that the value
+  landed in a neighbouring cell or row instead (line 1's Price still
+  reflects qty 2 / 10% discount, line 2's reflects qty 1 / no discount),
+  so both of that line's writes missed everything editable. Exact
+  mechanism not isolated - which is the point: the code had no way to tell.
+  Fixed on both counts: `vision_grounding.read_active_row_cells` is now
+  `read_row_cells` with an optional `row_key=(column, value)`, so
+  `add_order_line` identifies the row to fill by its own Item No. rather
+  than by "whichever row Fakturama is highlighting" (a guess about the
+  app's selection state, and exactly the kind of thing that can differ
+  between the first line and the second); and `_fill_and_verify_line_cells`
+  reads the row back afterwards through `comparisons.line_row_problems`,
+  retrying the fill from a freshly-located row
+  (`ORDER_LINE_FILL_ATTEMPTS`) and raising `ManualReviewRequired` if it
+  still doesn't take. That read-back checks every column Section 5 checks,
+  not just Qty./Discount, which puts the check where `state_machine.py`'s
+  own docstring always said it belonged (step 5: "checking each line's
+  calculated total against the source total immediately after entry") -
+  bug 2 above would have stopped the run at `ADD_ORDER_LINES` instead of
+  after the order was already saved.
+
+  **Verified so far:** fix 1 only, by re-running `verify_order_saved`
+  alone against the still-open saved order `PO000001` (scratchpad harness,
+  no UI writes): Cust.Ref. now passes, and the three totals now report
+  real values (`$411.76`/`$78.24`/`$490.00`) instead of labels. The line
+  and total mismatches that remain are the *data* bugs 2/3 wrote into that
+  order, and cannot be verified fixed by re-reading it.
+
+  **Blocked on manual cleanup before fixes 2/3 can be verified live:** the
+  `CHR-ERG-01` and `MAT-DESK-02` Product records in Fakturama hold the
+  wrong (net-as-gross) price, and `resolve_product` exact-matches by SKU,
+  so it will reuse them as-is and reproduce the same wrong totals. Delete
+  both records (or correct their Price (gross) to 297.50 and 47.60), then
+  re-run from `ADD_ORDER_LINES` on a fresh order. Predicted result if the
+  fixes are right: U.Price 250.00/40.00, line totals 450.00/120.00, and
+  order totals of exactly 570.00 net / 108.30 VAT / 678.30 gross.
+
+  Also noted, not fixed: `verify_order_saved` screenshots the item grid's
+  on-screen rectangle without ensuring the Order tab is actually in front,
+  so an occluded window reads 0 rows (hit while resuming - the real
+  workflow gets away with it because `save_order` leaves Fakturama
+  foreground immediately before).
 
 ## Future work
 
