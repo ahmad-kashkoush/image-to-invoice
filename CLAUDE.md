@@ -23,8 +23,11 @@ Extraction, Normalization & Validation, UI Automation, Entity Resolution,
 Verification, Error Handling — plus an Orchestrator that ties them together.
 Every module ships scaffolded first (docstrings + signatures that
 `raise NotImplementedError`) before being implemented section by section, in
-the dependency order `TODo.md` lists. Check `TODo.md`'s "Next" list before
-starting new work — it tracks what's real vs. still a stub.
+the dependency order `TODo.md` lists. Check `TODo.md`'s "Open" list before
+starting new work — it tracks what's real vs. still a stub. Keep that file
+short: it is a status list, not a narrative. Findings belong in
+`Doc/implementation-notes.md`, decisions in an ADR, and the ranked list of
+task-spec gaps lives only in `README.md`'s Next Steps.
 
 **Per-section wrap-up ritual** (do all of these when a section moves from
 stub to real, not just the code):
@@ -39,8 +42,9 @@ stub to real, not just the code):
    fully dictated by the design doc or task description (see
    `Doc/adr/0001-normalization-and-validation.md` for the template:
    Status / Context / Decisions / Consequences).
-4. Move the section from "Next" to "Done" in `TODo.md`, listing the files
-   touched, and renumber the remaining "Next" list.
+4. Add the section to `TODo.md`'s "Done" table (one row: section, package,
+   files touched, ADR numbers) and drop anything it closes from the "Open"
+   list, renumbering what remains.
 5. Suggest bulk commit message following conventional commits pattern.
 
 ## Fail-closed, not best-effort

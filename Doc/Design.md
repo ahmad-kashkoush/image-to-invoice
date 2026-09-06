@@ -91,6 +91,6 @@ Starting from a single order image, the system produces:
 
 ## Future work (out of scope now)
 
-1. Delivery, Correction, and Dunning documents are out of scope by design.
-2. The steps of the task specification the build does not yet cover — the Order Date field, `Data > Documents` as a second verification source, and several Debtor/VAT/Payment master-data fields — are listed as **Known gaps** in [../README.md](../README.md), with the reasoning behind each.
-3. Per-section status, the live debugging history behind the notes above, and the remaining open items are tracked in [../TODo.md](../TODo.md); decisions that were not dictated by this document are recorded as ADRs under [adr/](adr/).
+1. Delivery.
+2. Correction.
+3. Dunning documents.

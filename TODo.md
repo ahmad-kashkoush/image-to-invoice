@@ -1,717 +1,92 @@
+# Status and open work
 
-Tracks progress against `Doc/Design.md`'s six components plus the
-Orchestrator. All six components and the Orchestrator have real
-implementations, and the full pipeline ran end to end on the VM on
-2026-09-06 — order image through all ten workflow states to `DONE`, with the
-Invoice saved and verified (`INV000001`) and no manual-review entry.
+Per-section status for the six components of [Doc/Design.md](Doc/Design.md)
+plus the Orchestrator. This file tracks **what is real vs. still open** —
+nothing else:
 
-What is actually still open is in "Next" below. The long section after it is
-a chronological debugging log, kept for its findings; entries there are
-historical unless "Next" repeats them.
+- *Why* the live app needed what it needed → [Doc/implementation-notes.md](Doc/implementation-notes.md)
+- Decisions the design doc didn't dictate → [Doc/adr/](Doc/adr/)
+- The ranked list of task-spec gaps and what I'd do with three more hours →
+  [README.md](README.md#next-steps) (single source of truth; not duplicated here)
+
+**Current state:** all seven sections implemented and committed. Verified
+live on the VM (2026-09-06): a full run from the order image through all ten
+workflow states to `DONE`, Invoice saved and verified (`INV000001`), no
+manual-review entry.
 
 ## Done
 
-- **Section 1 — Image Extraction** (`extraction/`, commit `16e765b`)
-  - `vision_extractor.py`: Claude Haiku 4.5 vision pass over the order image.
-  - `ocr_fallback.py`: stubbed (deliberate for this demo build, per its docstring).
-  - `extract_order()` in `__init__.py` wires vision + OCR-fallback together.
-  - Tests: `tests/extraction/test_vision_extractor.py`, `test_ocr_fallback.py`.
-- Design doc + architecture diagrams (commit `abcbe89`).
-- **Section 2 — Normalization** (`normalization/`, uncommitted)
-  - `normalizer.py::normalize_order` — converts `RawOrder` → `NormalizedOrder`:
-    ISO-first dates (with a `DD.MM.YYYY` fallback), locale-tolerant Decimal
-    money/percent parsing, trimmed text. Aggregates every parse/validation
-    failure into one `ManualReviewRequired` rather than raising on the first.
-  - `validators.py` — `recompute_line_total` (Task rule 3.16: `qty x
-    unit_net_price x (1 - discount / 100)`, VAT excluded), `check_line_total`,
-    `check_required_fields`, and `check_confidence` (now reads `RawOrder`,
-    not `NormalizedOrder` — a scaffolding signature fix; confidence data
-    only exists on the raw models).
-  - `config.py` — env-driven thresholds, mirroring `extraction/config.py`.
-  - Tests: `tests/normalization/test_normalizer.py` (golden fixture built
-    from the assessment's sample order, `WEB-2026-0714-A17`),
-    `test_validators.py`.
-  - Rationale: `Doc/adr/0001-normalization-and-validation.md`.
-- **Section 3 — UI Control Discovery** (`ui_automation/`, uncommitted)
-  - `controls.py::find_control` / `find_all_controls` — bounded-retry lookup
-    over a duck-typed `parent` (pywinauto's `children(control_type=, title=)`);
-    raises `AmbiguousControlError` immediately on >1 match (no retry — it's
-    structural, not a timing race) or `ControlNotFoundError` on timeout.
-  - `waits.py` — `wait_until`, `wait_for_dialog`, `wait_for_stable_row_count`
-    poll-for-state helpers, raising `DialogTimeoutError` on timeout.
-  - `app.py::FakturamaApp` — generic `connect()` / `main_window()` /
-    `window(title_re)`, the one module that imports `pywinauto.Application`.
-  - `spikes/uia_probe.py` — implemented per its own docstring.
-  - Neither `app.py` nor the spike can be imported on macOS (`from pywinauto
-    import Application` fails off Windows, confirmed). `controls.py`/`waits.py`
-    need no such verification: they never import `pywinauto`, so they're
-    fully unit tested now.
-  - **README's build-order step 1 (go/no-go UIA spike) — passed on the
-    Windows 11 ARM VM (2026-09-04):** `python spikes/uia_probe.py` against a
-    running Fakturama window returned a rich, fully named control tree
-    (toolbars, buttons like `'Create: New Order'`/`'Create: New Invoice'`,
-    edits, search boxes) on the first try — no Java Access Bridge fallback
-    needed. Raw dump: `Archieve/uia-output.txt`.
-  - `spikes/uia_probe_editor.py` added: same read-only connect, but takes a
-    keyword arg and prints only the matching descendant subtrees (falling
-    back to the full tree if nothing matches), so the Order/Invoice editors
-    and each entity search dialog can be probed individually instead of
-    reading the whole main-window dump every time.
-  - Tests: `tests/ui_automation/test_waits.py`.
-  - Rationale: `Doc/adr/0002-ui-automation-testability-boundary.md`.
-- **Section 4 — Entity Resolution** (`entity_resolution/`, uncommitted)
-  - `resolver.py::resolve_exact_or_create` — shared zero/one/many
-    search-then-create decision, now raising `ManualReviewRequired` (with
-    `entity`/`step` context) on ambiguity. `resolver.py::search_grid_exact` —
-    new shared "search" half: type a key into a search box, then read
-    Fakturama's custom-rendered results grid via vision grounding (see
-    below), since those grids expose no rows to UIA at all (confirmed by
-    probing every entity's list view — `probes/probe-06-debitors.txt`,
-    `probe-07-products.txt`, `probe-09-Payment.txt`).
-  - `ui_automation/vision_grounding.py` (new) — `capture_control_image` +
-    `read_grid_rows`, the vision-grounded fallback for reading
-    UIA-invisible grids (Doc/Design.md's own sanctioned fallback for
-    custom-rendered elements). Reused by Section 5/orchestrator later.
-  - `ui_automation/controls.py` — `find_control`/`find_all_controls` gained
-    an optional `auto_id` filter (many Fakturama controls have no
-    accessible name and are only addressable this way).
-  - `matching.py` (new) — pure `exact_text_matches`/`exact_vat_matches` row
-    filters (no UI, no network).
-  - `models.py` (new) — `ResolvedEntity` (identity, `created`, `element`)
-    return type, replacing the scaffold's bare `Any`.
-  - `config.py` (new) — env-driven timeouts plus every verified
-    `auto_id`/button title from the VM probe (`probes/probe-*.txt`).
-  - `debtor.py`, `product.py`, `vat_rate.py`, `payment_method.py` — all
-    fully implemented and unit-tested (search, exact match,
-    create-and-fill-form, save) against verified control identifiers.
-    `product.py`'s `create()` resolves a missing VAT rate first, per the
-    original scaffold's "not skipped" instruction. VAT and Payment each
-    needed a second probe pass (`probes/probe-08-vats.txt`,
-    `probe-0801-vats.txt`, `probe-10-payment-create-form.txt`) after an
-    initial pass captured a stale editor instead of the target
-    list/create form; Fakturama's own create forms call these entities
-    "TAX Rate" and "New Term of Payment" internally.
-  - Tests: `tests/entity_resolution/test_resolver.py` (the pure
-    `resolve_exact_or_create` half only), `test_matching.py`.
-  - The two `ComboBox.select(...)` calls (`debtor.py` Country, `product.py`
-    VAT) are resolved: probing the combos directly (with each dropdown
-    actually open) found the popup renders as a single, childless `Pane`
-    that isn't even a descendant of the main window - so, unlike the list
-    grids, there was no control to read `.texts()` on regardless of
-    UIA-opacity. `entity_resolution/combos.py` (new) instead screenshots
-    `main_window` itself right after opening the combo (a screen-rect
-    grab captures the dropdown overlay too, without needing a handle to
-    the popup), asks `ui_automation.vision_grounding.read_combo_options`
-    (new) to name **and locate** each option, and clicks the matched
-    option's absolute screen coordinate - the first coordinate-based
-    click in this codebase, alongside the existing UIA-selector approach.
-    `pick_option` mirrors `matching`'s fail-closed 0/1/many exact-match
-    shape; `product.py`/`debtor.py`'s guessed `.select()` calls are gone.
-  - Rationale: `Doc/adr/0003-entity-resolution.md`,
-    `Doc/adr/0006-combo-selection.md`.
-- **Section 5 — Verification** (`verification/`, uncommitted)
-  - `order_verification.py::verify_order_saved` — confirms the Order's own
-    tab/pane title no longer reads `"New Order"` (an assigned order number
-    was persisted), then reads back Cust.Ref./Total Gross/Discount-derived
-    Total Net/VAT/Total and the item-row grid (vision-grounded) against the
-    `NormalizedOrder`. Signature gained a `normalized_order` parameter
-    beyond the original scaffold so persistence and field-matching are
-    checked together.
-  - `invoice_verification.py::verify_invoice_matches_order` — re-verifies
-    the linked Invoice's Cust.Ref., Total, and item lines against the same
-    normalized record (Task 5.1), independent of Fakturama's own
-    Invoice-generation step.
-  - `payment_verification.py::verify_payment_applied` — confirms payment
-    method, and (if PAID) the paid toggle/payment date/full invoice Value,
-    or (if not PAID) that none of those were invented (Task 5.2/5.3/5.6).
-  - `comparisons.py` (new) — pure `money_equals`/`percent_equals`/
-    `date_equals`/`text_equals`/`order_level_totals`/`line_row_problems`,
-    bridging normalization's typed `Decimal`/`date` values against the
-    plain strings read back from the UI.
-  - `readback.py` (new) — shared `window_title`/`read_field_text`/
-    `read_toggle_state`/`read_grid` primitives every verification function
-    composes; `read_grid` reuses `ui_automation.vision_grounding` for the
-    Order/Invoice editor's own item-row grid, confirmed UIA-invisible the
-    same way entity resolution's list grids are.
-  - `config.py` (new) — env-driven timeouts; Order/Invoice editor fields
-    are selected **by accessible name**, not `auto_id` (unlike Section 4's
-    entities) — comparing `probes/probe-01-create-order.txt` against
-    `probe-02-fill-create-order.txt` found every field `auto_id` in that
-    editor differs between app sessions while names stay stable. All three
-    controls needed for Data > Documents, the linked Invoice editor's
-    layout, and the Invoice's payment controls (paid checkbox/payment
-    date/Value) have **no VM probe yet** and are left as explicit
-    empty-string placeholders (`# TODO probe`) that fail closed rather than
-    guessed identifiers — see `Doc/adr/0004-verification.md`.
-  - All three functions return `True` or raise one aggregated
-    `ManualReviewRequired` collecting every mismatch found, mirroring
-    `normalization.normalizer.normalize_order`'s fail-closed shape, rather
-    than a bare `False`/first-problem-only raise.
-  - Tests: `tests/verification/test_comparisons.py` — pure, no fakes,
-    using the golden `WEB-2026-0714-A17` sample order as the known-good
-    fixture.
-  - Rationale: `Doc/adr/0004-verification.md`.
-- **Section 6 — Error Handling** (`error_handling/`, uncommitted)
-  - `manual_review.py::route_to_manual_review` — appends one JSON object
-    per line to a single queue file (`out/manual_review_queue.jsonl` by
-    default, per the README's shared folder layout), holding a timestamp,
-    the source image path, and the failing `step`/`reason`. Fail-safe by
-    contract: any write failure is caught and reported to stderr instead
-    of propagating, since this is the terminal handler for a workflow
-    run. `out_dir` and `now` are injectable keyword args (mirroring
-    Sections 1/5's `client=`/`normalized_order=` seam) so tests never
-    touch the real `out` folder or wall-clock time.
-  - `config.py` (new) — env-driven `OUT_DIR`/`QUEUE_FILENAME`, mirroring
-    every other section's `config.py`.
-  - `exceptions.py::ManualReviewRequired` left unextended (still just
-    `step`/`reason`); `route_to_manual_review` forwards a `details`
-    attribute via `getattr` if a future caller sets one, so richer partial
-    state can be added later without changing this function again — see
-    Future work below and `Doc/adr/0005-error-handling.md`.
-  - Tests: `tests/error_handling/test_manual_review.py` — JSONL
-    write/append, `out_dir` auto-creation, the fail-safe path (unwritable
-    `out_dir` still returns `None`), and the `details` forwarding hook.
-  - Rationale: `Doc/adr/0005-error-handling.md`.
-- **Section 7 — Orchestrator** (`orchestrator/`, uncommitted)
-  - `state_machine.py::run_workflow(image_path, *, app=None, client=None,
-    out_dir=None, settle_seconds=...)` — the 9-state loop (EXTRACT →
-    NORMALIZE → OPEN_ORDER → POPULATE_ORDER_FIELDS → ADD_ORDER_LINES →
-    VALIDATE_ORDER → SAVE_AND_VERIFY_ORDER → CREATE_AND_VERIFY_INVOICE →
-    APPLY_AND_VERIFY_PAYMENT), threading one `FakturamaApp`-like handle and
-    one vision `client` through every section. One `try/except` around the
-    whole sequence catches both `ManualReviewRequired` (from any section)
-    and a bare `ui_automation` control-discovery failure
-    (`ControlNotFoundError`/`AmbiguousControlError`/`DialogTimeoutError`,
-    converted to `ManualReviewRequired(state.value, ...)`), routing to
-    `error_handling.manual_review.route_to_manual_review`. Returns the
-    `WorkflowState` last reached (`DONE` on success) rather than `None`.
-  - `actions.py` (new) — every UI write action
-    (`open_new_order`/`populate_order_fields`/`add_order_line`/
-    `save_order`/`create_linked_invoice`/`apply_payment`), kept out of
-    `state_machine.py` so the loop reads as control flow. The main
-    toolbar's `"Create: New Order"` button and the New Order editor's own
-    Pane (reusing `verification.config.ORDER_TAB_TITLE_UNSAVED`) are
-    probed and pinned; the order-line grid's entry affordance and the
-    Data > Documents "create linked invoice" action have no VM probe yet
-    and are left as explicit empty-string `# TODO probe` placeholders in
-    `config.py`, so they fail closed against a real window (see "Not
-    started" below).
-  - **Debtor-to-Order attachment (2026-09-06, live-VM probe session)** —
-    `populate_order_fields`'s customer-field placeholder
-    (`ORDER_CUSTOMER_FIELD_AUTO_ID`) was a wrong assumption (a plain Edit
-    to `set_text()`), not an un-probed one: the customer field is a
-    multi-line address Edit you attach a Debtor to via a "Select the
-    address" picker, opened by clicking a small blank-named Image
-    structurally located next to the "Addresses" label
-    (`config.ORDER_ADDRESSES_LABEL_NAME`). That picker is a genuinely
-    separate top-level OS window, not found reliably by pywinauto's own
-    window enumeration - `ui_automation.app.FakturamaApp.top_level_window_by_title`
-    (new) uses raw `win32gui.EnumWindows` instead, confirmed live this is
-    the only mechanism that reliably finds it. Its UIA-invisible grid is
-    searched and read via a new `ui_automation.vision_grounding.read_grid_rows_located`
-    (rows + bounding boxes, mirroring `read_combo_options`), matched by
-    "exactly one row after searching by company name" rather than exact
-    cell-text equality (that column can render too narrow to show the
-    full company name - see `Doc/adr/0007-orchestrator.md`'s Decision 7
-    and Future work below for the more correct fix). `ORDER_PAYMENT_METHOD_FIELD_AUTO_ID`
-    is deleted, not filled in - confirmed live there is no Payment Method
-    field on the Order screen at all; it's attached later at the Invoice
-    stage by `apply_payment`, unchanged. Also fixed, found during live
-    verification: `entity_resolution.debtor`'s Company field needed a new
-    `ui_automation.controls.type_text` (real keystrokes) instead of
-    `set_text()`, which silently failed to persist it through Save.
-    Verified live end-to-end: `populate_order_fields` now completes and
-    the workflow advances to `ADD_ORDER_LINES`.
-  - `config.py` (new) — env-driven timeouts plus the selectors above;
-    reuses `entity_resolution.config`/`verification.config` constants
-    rather than duplicating them.
-  - `__main__.py` (new) — `python -m fakturama_automation.orchestrator
-    <image_path>` CLI wrapper around `run_workflow`.
-  - `ui_automation.app.FakturamaApp` is imported inside `run_workflow`'s
-    body (not at module level) so the orchestrator package stays
-    importable cross-platform when a caller/test supplies its own fake
-    `app` — see `Doc/adr/0007-orchestrator.md`.
-  - No unit test (UI-writing state machine) — verify live on the VM;
-    doesn't exercise a full extract-to-`DONE` run either way (see ADR's
-    Consequences).
-  - Rationale: `Doc/adr/0007-orchestrator.md`.
+| # | Section | Package | Files | ADR |
+|---|---|---|---|---|
+| 1 | Image Extraction | `extraction/` | `vision_extractor.py` (Claude Haiku 4.5 vision pass), `ocr_fallback.py` (deliberate no-op stub), `models.py`, `config.py`, `__init__.py::extract_order` | — |
+| 2 | Normalization & Validation | `normalization/` | `normalizer.py`, `validators.py`, `models.py`, `config.py` | 0001 |
+| 3 | UI Control Discovery | `ui_automation/` | `controls.py`, `waits.py`, `app.py`, `exceptions.py`, `config.py`; `vision_grounding.py` + `grid_geometry.py` added later (see 4 and 7); `spikes/uia_probe.py`, `spikes/uia_probe_editor.py`, `probes/*.txt` | 0002 |
+| 4 | Entity Resolution | `entity_resolution/` | `resolver.py`, `debtor.py`, `product.py`, `vat_rate.py`, `payment_method.py`, `matching.py`, `combos.py`, `models.py`, `config.py` | 0003, 0006 |
+| 5 | Verification | `verification/` | `order_verification.py`, `invoice_verification.py`, `payment_verification.py`, `comparisons.py`, `readback.py`, `config.py` | 0004 |
+| 6 | Error Handling | `error_handling/` | `manual_review.py`, `exceptions.py`, `config.py` | 0005 |
+| 7 | Orchestrator | `orchestrator/` | `state_machine.py`, `actions.py`, `config.py`, `__main__.py` | 0007 |
+| 7b | `SAVE_AND_VERIFY_INVOICE` (tenth state) | `orchestrator/`, `verification/` | `state_machine.py`, `actions.py::save_invoice`, `invoice_verification.py::verify_invoice_saved`, `payment_verification.py::payment_problems` | 0008 |
 
-- **Section 7b — `SAVE_AND_VERIFY_INVOICE`, the tenth state** (2026-09-06).
-  The workflow ended after applying and verifying payment and never saved
-  the Invoice, so a run could report `DONE` with the payment data living
-  only in an open editor and no Invoice row in the database at all.
-  Confirmed live across two runs of the same image: one left no
-  `FKT_DOCUMENT` Invoice row and the tab still titled "New Invoice", the
-  other persisted as `INV000001` (`PAID=TRUE`, `PAYDATE='2026-07-18'`,
-  `PAIDVALUE=678.3`) only because a human clicked Save afterwards - and
-  the automation's own result was identical in both cases.
-  - `orchestrator/state_machine.py` — new `WorkflowState.
-    SAVE_AND_VERIFY_INVOICE` between `APPLY_AND_VERIFY_PAYMENT` and
-    `DONE`; its own act/verify pair, mirroring `SAVE_AND_VERIFY_ORDER`,
-    so a save failure files under its own step name rather than the
-    payment step's.
-  - `orchestrator/actions.py` — new `save_invoice`, which re-activates the
-    Invoice tab via the existing `_reactivate_editor` retry helper before
-    clicking Save (the toolbar button acts on whichever editor is active,
-    and two editors are open by then). The shared toolbar click moved into
-    a private `_click_save` used by `save_order` too.
-  - `verification/invoice_verification.py` — new `verify_invoice_saved`:
-    assigned invoice number, Cust.Ref., Total, and every payment field.
-    Deliberately no item-grid re-read (a vision call; the lines were
-    verified in the immediately preceding state and a save doesn't edit
-    lines - Total is the aggregate signal).
-  - `verification/payment_verification.py` — `payment_problems` split out
-    of `verify_payment_applied` so both callers run identical checks and
-    the post-save failure aggregates under the right step name.
-  - `verification/config.py` — new `INVOICE_TAB_TITLE_UNSAVED`, alongside
-    the existing `ORDER_TAB_TITLE_UNSAVED`.
-  - No unit test (UI-writing state) — verified live instead.
-  - **Verified live (2026-09-06)**: a full run from the order image
-    completed end to end through the new state — the Invoice was saved by
-    the automation and verified, no manual-review entry. `save_invoice`'s
-    tab re-activation found the Invoice's "Cust.Ref." probe correctly
-    despite the Order editor's identically named field, confirming the
-    "Eclipse exposes only the active tab" premise it relies on.
-  - Rationale: `Doc/adr/0008-save-and-verify-invoice.md`.
+Notes worth keeping in one place:
 
-## Next
+- **Workflow states:** `EXTRACT → NORMALIZE → OPEN_ORDER →
+  POPULATE_ORDER_FIELDS → ADD_ORDER_LINES → VALIDATE_ORDER →
+  SAVE_AND_VERIFY_ORDER → CREATE_AND_VERIFY_INVOICE →
+  APPLY_AND_VERIFY_PAYMENT → SAVE_AND_VERIFY_INVOICE → DONE`.
+- **UIA go/no-go spike passed** (2026-09-04): Fakturama returns a rich,
+  fully named control tree on the `uia` backend, no Java Access Bridge
+  fallback needed (`probes/uia-output.txt`). Its *list grids* are the
+  exception — custom-rendered, invisible to UIA, read via
+  `vision_grounding` instead.
+- **No selector placeholders remain.** Every `config.py` identifier is
+  probed and pinned; nothing is left as an empty string.
+- **Tests** cover pure logic only (normalization, `comparisons.py`,
+  `matching.py`, `waits.py`, `manual_review.py`, extraction) — see
+  `CLAUDE.md`'s test conventions. UI-writing code is verified live on the VM.
 
-Everything below is genuinely open. Nothing here blocks a run of the golden
-sample order, which completes end to end today.
+## Open
 
-- **Known gaps against the task specification** — the steps the build does
-  not cover (Order Date never written; `Data > Documents` not used as the
-  verification source; Debtor E-Mail/Telephone/address-roles/Miscellaneous;
-  payment-code mapping; `VAT 19%` naming and its E-Invoice code; Product
-  Description/cost/Stock; the Debtor picker's one-row match; addresses never
-  read back; the stubbed OCR pass; currency never compared). Each is listed
-  with its reasoning under **Known gaps** in `README.md`, and `README.md`'s
-  Next Steps ranks them — that list is the single source of truth for this,
-  not a second copy here.
-- **`Data > Documents` is unprobed** — the one screen with no VM probe at
-  all. Tasks 4.5/5.5 prescribe it as an independent second check on the
-  saved Order and Invoice; verification currently reads the open editor's
-  own fields back instead. Probe it with `spikes/uia_probe_editor.py`, then
-  add a vision-grounded grid read (its rows will be UIA-invisible like every
-  other Fakturama list). See `Doc/adr/0004-verification.md`'s Consequences.
-- **VM verification needed**: `add_order_line`'s Qty./Discount fill step
-  (`orchestrator/actions.py`) reads both columns from a single screenshot
-  of the Items grid (`vision_grounding.read_active_row_cells`), assuming
-  both fit in the visible viewport at once. On the dev machine used for
-  the 2026-09-06 VAT-duplicate debugging session (see the debugging
-  log below), the grid has too many columns (Pos./Qty./Item No./Picture/Name/
-  Description/VAT/U.Price/Discount/Price) to show Qty. and Discount
-  together — confirmed live: at every horizontal scroll position tried,
-  one or the other column always fell outside the captured control's
-  bounds. Fails closed (`ManualReviewRequired`) rather than misreading, so
-  not unsafe, but blocks completing an order on a narrow-enough window.
-  Also observed: the grid pane's own reported UIA rect extended past the
-  main window's rect on that machine — possibly a DPI-scaling quirk local
-  to that dev box rather than a real constraint on the target Windows 11
-  ARM VM. Needs checking against the actual VM before deciding whether
-  `add_order_line` needs a scroll-and-re-read fix (read Qty. at the
-  default scroll position, scroll right, read Discount separately) or
-  this was dev-machine-only. Update: a later clean run in this same
-  session (fresh Fakturama process, both line items added end-to-end, see
-  the debugging log below) did *not* hit this - Qty. and Discount were both
-  visible together that time. Not reproduced a second time, so leaning
-  towards this having been a transient scroll-position artifact of the
-  earlier debugging session rather than a fixed viewport constraint - but
-  still unverified on the real VM, so leaving this open.
+Nothing here blocks a run of the golden sample order, which completes end to
+end today.
 
-## Live debugging log (chronological)
-
-Kept for its findings, not as a work list: every entry below is historical
-unless it also appears under "Next" above. Entries are in the order they
-were hit, and later ones frequently resolve earlier ones — read a bullet to
-its end before treating it as still open.
-
-- **Mostly resolved.** Data > Documents, the linked Invoice editor, and the
-  Invoice's payment controls (paid checkbox, payment date, Value) had **no
-  VM probe at all** — `verification/config.py` left their selectors as
-  explicit empty-string placeholders (see Section 5's Done entry and
-  `Doc/adr/0004-verification.md`). The Invoice editor and its payment
-  controls have since been probed and pinned (the `INVOICE_*` constants;
-  no empty-string placeholder remains in any `config.py`), and both are
-  exercised by the end-to-end run. Only `Data > Documents` is still
-  unprobed — promoted to "Next" above. The Order editor's own fields (Cust.
-  Ref./Total Gross/Discount/VAT/Total, and its tab-title-as-order-number
-  signal) are done — probing found their `auto_id`s are session-unstable
-  but their accessible names are not, so Section 5 selects them by name.
-  Use `spikes/uia_probe_editor.py <keyword>` (or a full
-  `spikes/uia_probe.py` dump, which beats a keyword-filtered one for
-  blank-named controls — those can only be identified by their structural
-  context, which a filtered dump cuts away) against a live saved Order,
-  Data > Documents, and
-  a linked Invoice (including its payment area) to fill these in.
-- **Still open — see "Next".** Verifying via Data > Documents itself (Task
-  4.5/5.5's own prescribed check — a second, independent read distinct from
-  reading the editor's internal fields) — not implemented; would need its
-  own vision-grounded grid read once the pane above is probed. See
-  `Doc/adr/0004-verification.md`'s Consequences.
-- **Resolved.** The Order editor's own line grid is not exposed to UIA
-  either (`probes/probe-01/02-*.txt`) — order-line entry needed the same
-  vision-grounding/keyboard approach as entity search, not a plain
-  `find_control` selector. `orchestrator/config.py` left
-  `ORDER_LINE_ADD_BUTTON_TITLE`/`INVOICE_FROM_ORDER_BUTTON_TITLE`/
-  `INVOICE_EDITOR_PANE_NAME` as explicit empty-string placeholders for
-  this reason (Section 7's Done entry, `Doc/adr/0007-orchestrator.md`); all
-  three are filled in now, and line entry runs through the "Select a
-  product" picker (see Future work's first entry).
-  The customer/payment-method attachment gap this bullet used to list is
-  done — see Section 7's Done entry above.
-- A live run (2026-09-06) reached `ADD_ORDER_LINES` and failed inside
-  `entity_resolution.product.resolve_product`'s VAT-rate creation with
-  `no Edit control named None (auto_id='133868') found` -
-  `VAT_FORM_NAME_AUTO_ID` in `entity_resolution/config.py` is a hardcoded
-  auto_id from an earlier probe session, and per this codebase's own
-  documented finding (`CLAUDE.md`, `Doc/adr/0003`), auto_ids are not
-  stable across Fakturama restarts. This is a pre-existing gap in Section
-  4's VAT-rate form filling, unrelated to the order-line-entry gap above
-  - `vat_rate.py`'s create form needs the same structural (name-based, not
-  auto_id-based) locator treatment `debtor.py`'s blank-named fields
-  already got, not a fresh hardcoded auto_id.
-- A separate `ADD_ORDER_LINES` run (2026-09-06) failed with `no Text
-  control named 'Search:' (auto_id=None) found within 5.0s`, right after
-  `app.top_level_window_by_title` had already reported the "Select a
-  product" dialog present - meaning the wrong window was found, not that
-  none appeared. Root cause: `top_level_window_by_title` matched by title
-  via raw `win32gui.EnumWindows` and silently took the *first* visible
-  window with that exact title, with no check for a second one - unlike
-  every other control lookup in this codebase
-  (`ui_automation.controls.find_control`), which fails closed
-  (`AmbiguousControlError`) as soon as it sees more than one match rather
-  than picking arbitrarily. A stale/leftover "Select a product" window
-  (e.g. one left open from manually clicking around the app outside the
-  automated flow) sitting alongside the freshly-opened one could get
-  grabbed instead, handing back a window that may not have its own
-  "Search:" box rendered (or any child controls at all) yet. Fixed:
-  `top_level_window_by_title` now collects every matching visible window
-  and raises `AmbiguousControlError` if more than one exists, mirroring
-  `find_control`'s convention, instead of guessing. Not itself unit-tested
-  - `ui_automation/app.py` is the one module that imports `pywinauto`
-  directly and can't be exercised off the VM (`CLAUDE.md`'s platform
-  note) - verify live by re-running `ADD_ORDER_LINES` with no other
-  "Select a product"/"Select the address" window left open beforehand.
-  That fix didn't resolve a repeat live run (2026-09-06) with the exact
-  same `no Text control named 'Search:' ... found within 5.0s` error - no
-  `AmbiguousControlError` was raised, ruling out a stale duplicate window.
-  Live observation (reported by the user watching the VM) isolated the
-  actual cause instead: the "Select a product" picker can visibly flash
-  open and close again within a fraction of a second of the toolbar click
-  that opens it (root cause not fully isolated - most likely an input
-  race between that click and the dialog's own initial render/focus).
-  `top_level_window_by_title` only needs to observe a window once to
-  succeed, so it handed back a reference to a dialog that was already
-  gone by the time the code got around to reading its "Search:" box -
-  same symptom, different cause than the first fix addressed. Fixed:
-  `ui_automation.app.FakturamaApp` gained `top_level_window_is_open`
-  (single no-polling snapshot, factored out of the same
-  `_visible_window_handles` helper `top_level_window_by_title`/
-  `wait_until_top_level_window_closed` now share); `orchestrator.actions`
-  gained `_open_picker_dialog` (click, then re-check
-  `top_level_window_is_open` after `config.DIALOG_STABILIZE_SECONDS`,
-  re-clicking up to `config.DIALOG_OPEN_ATTEMPTS` times if the dialog
-  already vanished), used by both `add_order_line`'s "Select a product"
-  picker and `_attach_debtor_to_order`'s "Select the address" picker
-  (structurally identical, so given the same fix even though only the
-  former has been observed to flash-close live). Also not unit-tested for
-  the same cross-platform reason as the first fix - verify live.
-- Re-running to verify the above surfaced a different, earlier live
-  failure (2026-09-06) before ever reaching `ADD_ORDER_LINES`: `resolve_
-  debtor` raised `ManualReviewRequired` with `no unique option matching
-  'Germany'; options were ['all', 'andy']` - the Country combo's vision
-  read (`entity_resolution.combos._read_open_combo_options`) came back
-  with nonsense options. Root cause: unlike every other UI-changing-then-
-  read step in this codebase (`resolver.search_grid_exact` sleeps after
-  typing into a search box; `add_order_line` sleeps after `set_text` into
-  a picker's search Edit), this function had no settle delay at all
-  between opening/type-ahead-scrolling the combo and screenshotting it for
-  the vision read - capturing it mid-open/mid-scroll is a much likelier
-  explanation for meaningless option text than the vision model
-  hallucinating real country names into nonsense. Fixed: `select_vat_
-  option`/`select_exact_option`/`_read_open_combo_options` gained a
-  `settle_seconds` keyword (default `entity_resolution.config.
-  SEARCH_SETTLE_SECONDS`, same constant `resolver.search_grid_exact`
-  already uses), slept once right before the screenshot. Tests updated
-  (`tests/entity_resolution/test_combos.py` now passes `settle_seconds=0`
-  throughout, matching every other settle-based test in this codebase).
-  Confirmed fixed by a live re-run (2026-09-06): the debtor already
-  existed (created by an earlier attempt), so this run skipped straight
-  past the Country combo into `_attach_debtor_to_order`'s own "Select the
-  address" picker - temporary diagnostic logging on that picker-open
-  step showed it observed, then stayed open with its "Search:" box
-  present continuously for ~3.8s (no flash-close at all this time),
-  confirming the `_open_picker_dialog` retry/stabilize fix above is sound
-  and not itself the problem. This run instead hit a new, unrelated wall:
-  `populate_order_fields` raised `2 rows in the "Select the address"
-  dialog after searching for 'Northstar Office GmbH' (expected exactly
-  one); found: Northstar Office GmbH, Northstar Office GmbH` - a genuine
-  duplicate Debtor record in Fakturama's own database (almost certainly
-  created by an earlier attempt during this same debugging session),
-  correctly fail-closed rather than guessing which row to attach
-  (`CLAUDE.md`'s central rule) - not a code bug. Blocked on manual
-  cleanup: delete or rename one of the two "Northstar Office GmbH"
-  Debtor records in Fakturama before the next run, then retry -
-  `ADD_ORDER_LINES` itself (and its own picker-flash-close fix) still
-  hasn't been exercised by a clean run yet.
-  A later clean run (2026-09-06) finally reached a second `add_order_line`
-  call and reproduced the identical `no Text control named 'Search:'
-  (auto_id=None) found within 5.0s` error there - but only on the *second*
-  line item, not the first. Root cause: `_open_picker_dialog`'s stabilize
-  check only confirms the dialog's OS-level top-level window is visible
-  (`app.top_level_window_is_open`), not that its content (the "Search:"
-  label/Edit/grid) has actually rendered. On a first-ever open this gap
-  didn't matter - content reliably appeared well within
-  `_pick_single_row_in_dialog`'s own follow-on 5s `find_control` poll. On
-  a *reopen* of the same dialog title, the same flash-open-close race this
-  bullet already documents can recur after the stabilize check has
-  already passed (window visible at `stabilize_seconds`, then torn down
-  again before the follow-on 5s content poll completes) - landing past
-  the point `_open_picker_dialog` considered "safe", so none of its retry
-  logic covered it. Fixed: `_open_picker_dialog` now also probes for the
-  dialog's own "Search:" Text control (a short `stabilize_seconds`
-  timeout, not the caller's full `timeout_seconds`) once the window looks
-  stable, and retries (re-clicking `open_button`) the same way it already
-  did for a vanished window if that probe fails too - shared by both
-  pickers, same as the round above. Not itself unit-tested for the same
-  cross-platform reason as the fixes above.
-
-  A live re-run confirmed the content-probe fix alone was **not**
-  sufficient: `_open_picker_dialog`'s probe reliably confirmed "Search:"
-  present, yet the very next step - `_pick_single_row_in_dialog`'s own
-  first `find_control` call on the same dialog, moments later - still
-  timed out, meaning the dialog can vanish *after* content is confirmed
-  present too, not only before. Fixed further: `_pick_row_via_picker`
-  (new, `actions.py`) wraps the *entire* open-search-pick cycle
-  (`_open_picker_dialog` with `attempts=1` + `_pick_single_row_in_dialog`)
-  as one retryable unit - a `ControlNotFoundError`/`DialogTimeoutError`
-  from either step retries the whole cycle from a fresh click, closing any
-  stray leftover dialog (Escape) first so the retry's own
-  `top_level_window_by_title` can't collide with it. `add_order_line`/
-  `_attach_debtor_to_order` now call this instead of the two separate
-  calls.
-
-  Live testing this fix (2026-09-06) surfaced something more concerning
-  than a simple retry gap: calling the real `add_order_line` repeatedly
-  against the same already-open Order tab (same SKU, already-resolved
-  Product, no new-entity creation) was **not** consistently flaky - it
-  ranged from succeeding instantly to failing all 3 retry attempts in a
-  row, with no code-observable pattern distinguishing the two (ruled out
-  by direct live experiment: OS focus being stolen to another window
-  during the dialog's lifetime; calling `dialog.set_focus()`; querying the
-  dialog's UIA tree repeatedly/rapidly; too-short a gap between retries -
-  a 3s cool-down between attempts made no difference, still 3/3 failures).
-  The failure rate appeared to *worsen* over the course of an extended
-  live debugging session (many dozens of scripted open/close cycles
-  against one running Fakturama process) - consistent with the live
-  Fakturama process itself degrading (a resource/handle leak or similar)
-  rather than a discoverable logic bug in this codebase. Not resolved:
-  the widened retry above is a genuine improvement for ordinary transient
-  flakiness and is kept, but cannot be verified to fully fix
-  `ADD_ORDER_LINES` until re-tested against a freshly-restarted Fakturama
-  process. Next step: restart Fakturama, re-run `ADD_ORDER_LINES` on an
-  order with at least two line items, and if it still fails at a similar
-  rate on a fresh process, this points at something outside this
-  codebase's control (Fakturama/SWT/UIA-bridge stability) rather than a
-  fixable client-side race.
-
-  A later session (2026-09-06, continued) tracked down the actual root
-  cause of the user-reported symptom ("adds the first item 3 times, then
-  errors") with a live Fakturama instance connected directly: two
-  separate, real bugs, not the suspected "process degradation".
-
-  First: `entity_resolution.vat_rate._create_vat_rate` filled the "Value"
-  field with plain `controls.type_text` (click + type, no clear). That
-  field defaults to pre-filled "0%", so the keystrokes inserted into the
-  existing text instead of replacing it - confirmed live (screenshot of
-  the saved record) that Fakturama silently kept Value at "0%" regardless
-  of what was typed, while Name saved correctly as e.g. "19%". Since
-  `resolve_vat_rate`'s search matches by that same Value column, it could
-  never find its own previously-created rate on the next lookup, creating
-  a fresh duplicate "19%"/Value-0% record every time a new product needed
-  that VAT percent - almost certainly how the product catalog accumulated
-  enough duplicate/junk data over repeated dev/test runs to eventually
-  destabilize the "Select a product" picker (see the `AmbiguousControlError`
-  history above this run's `resolve_vat_rate` even had to route around).
-  Fixed: clear the field (`Ctrl+A`+`Delete`) before typing and commit with
-  a trailing `Tab`, mirroring `_fill_grid_text_cell`'s existing pattern.
-  Confirmed live: Value now reads back correctly (e.g. "25%") both before
-  and after Save.
-
-  Second, and the direct cause of the duplicate-add symptom itself: typing
-  an exact SKU into the "Select a product" dialog's search box can make
-  Fakturama auto-confirm the single narrowed-down match and close the
-  dialog **on its own** - before `_pick_single_row_in_dialog` ever gets to
-  read the grid, click the row, or click OK. Traced live with
-  instrumentation on every internal step (`_open_picker_dialog`/
-  `_pick_single_row_in_dialog` wrapped to print success/failure): all 3
-  retry attempts reported the identical "no Text control named 'Search:'
-  ... found within 5.0s" failure (the re-find right after typing, `actions.py`
-  ~line 403) with `[pick] SUCCESS` never printed once - yet the Items grid
-  showed 3 duplicate rows of that same SKU afterward. The dialog closing
-  itself post-type is a *success* (the row is already added), not the
-  flash-close race the earlier fixes in this log addressed - but the old
-  code had no way to tell the difference, so the retry loop reopened the
-  picker and re-added the row on every attempt that hit this. Fixed:
-  `_pick_single_row_in_dialog` now checks `dialog.exists()` right after
-  typing (before re-finding "Search:"), via a new `_dialog_still_exists`
-  helper that also treats a raw `_ctypes.COMError` from a stale
-  handle-based wrapper's `.exists()` re-resolution as "gone" (confirmed
-  live this can happen) rather than propagating it - if the dialog is
-  already gone, returns immediately instead of continuing to look for its
-  (now nonexistent) content. Confirmed live, end-to-end, on a freshly
-  restarted Fakturama process with both fixes in place: a 2-line-item
-  order added both lines exactly once each with correct Qty./quantities/
-  VAT/totals (`CHR-ERG-01` x2 @ $250 + `MAT-DESK-02` x3 @ $40 = $620.00
-  gross), no manual-review entry, no duplicate rows, no duplicate VAT
-  records.
-
-- A full run (2026-09-06) finally reached `SAVE_AND_VERIFY_ORDER` and
-  routed one aggregated entry to `out/manual_review_queue.jsonl`. Three
-  independent bugs, all now fixed; the first masked the other two.
-
-  **1. Every order-level field read back its own label, not its value.**
-  `verification.readback.read_field_text` used `control.window_text()`.
-  pywinauto's uia `EditWrapper` doesn't override that - it resolves to
-  `UIAElementInfo.rich_text`, which asks for the TextPattern and falls
-  back to the element's *Name* when unavailable. Fakturama's SWT edits
-  have no TextPattern, so Cust.Ref. read back as `'Cust.Ref.'`, Total as
-  `'Total'`, and so on: four comparisons that compared a label against a
-  value and could never pass, regardless of what was in the order. Visible
-  in `probes/probe-02-fill-create-order.txt` all along (it dumps `Edit -
-  'Cust.Ref.'` for an editor that had just been filled), and confirmed
-  live against the saved order: `window_text()` → `'Cust.Ref.'`,
-  `get_value()` → `'WEB-2026-0714-A17'`. Fixed: new
-  `readback.field_value()` reads the ValuePattern (`get_value()`, with
-  `legacy_properties()["Value"]` as fallback) and raises rather than
-  degrading to the name if a control exposes neither.
-
-  **2. Product prices were written net into Fakturama's gross field.**
-  `entity_resolution.product._create_product` typed `item.unit_net_price`
-  straight into the Product editor's `"Price (gross)"` field. Fakturama
-  derives net back out by dividing by (1 + VAT), so a 250.00 net chair
-  became $210.08 a unit and $378.15 for two (exactly 250/1.19 and
-  450/1.19), and the order's own totals came out as $411.76 net / $78.24
-  VAT / $490.00 gross against an expected 570.00 / 108.30 / 678.30. Note
-  the two halves were each individually right: `_set_pricing_mode_net`
-  correctly switches the *Order* to Net, and the *Product* form is
-  genuinely gross - nothing converted between them. Fixed: new
-  `normalization.validators.gross_from_net` (the single home for that
-  formula, same rule as `recompute_line_total`), applied at the one write
-  site; the `"Price (gross)"` label is now a named config constant
-  (`PRODUCT_PRICE_GROSS_LABEL_NAME`) that doubles as the price-basis check
-  - a net-price-configured Fakturama would label it `"Price (net)"` and
-  `find_control` would fail closed instead of writing the wrong basis.
-
-  **3. The second line's Qty. write silently landed nowhere.**
-  `MAT-DESK-02` stayed at Fakturama's default `1.00` while line 1's
-  `2` took, with nothing raised - `_fill_grid_text_cell` clicks a screen
-  coordinate computed from a vision read and types, so a write that misses
-  the cell leaves no trace at all. Ruled out by arithmetic that the value
-  landed in a neighbouring cell or row instead (line 1's Price still
-  reflects qty 2 / 10% discount, line 2's reflects qty 1 / no discount),
-  so both of that line's writes missed everything editable. Exact
-  mechanism not isolated - which is the point: the code had no way to tell.
-  Fixed on both counts: `vision_grounding.read_active_row_cells` is now
-  `read_row_cells` with an optional `row_key=(column, value)`, so
-  `add_order_line` identifies the row to fill by its own Item No. rather
-  than by "whichever row Fakturama is highlighting" (a guess about the
-  app's selection state, and exactly the kind of thing that can differ
-  between the first line and the second); and `_fill_and_verify_line_cells`
-  reads the row back afterwards through `comparisons.line_row_problems`,
-  retrying the fill from a freshly-located row
-  (`ORDER_LINE_FILL_ATTEMPTS`) and raising `ManualReviewRequired` if it
-  still doesn't take. That read-back checks every column Section 5 checks,
-  not just Qty./Discount, which puts the check where `state_machine.py`'s
-  own docstring always said it belonged (step 5: "checking each line's
-  calculated total against the source total immediately after entry") -
-  bug 2 above would have stopped the run at `ADD_ORDER_LINES` instead of
-  after the order was already saved.
-
-  **Verified so far:** fix 1 only, by re-running `verify_order_saved`
-  alone against the still-open saved order `PO000001` (scratchpad harness,
-  no UI writes): Cust.Ref. now passes, and the three totals now report
-  real values (`$411.76`/`$78.24`/`$490.00`) instead of labels. The line
-  and total mismatches that remain are the *data* bugs 2/3 wrote into that
-  order, and cannot be verified fixed by re-reading it.
-
-  **Blocked on manual cleanup before fixes 2/3 can be verified live:** the
-  `CHR-ERG-01` and `MAT-DESK-02` Product records in Fakturama hold the
-  wrong (net-as-gross) price, and `resolve_product` exact-matches by SKU,
-  so it will reuse them as-is and reproduce the same wrong totals. Delete
-  both records (or correct their Price (gross) to 297.50 and 47.60), then
-  re-run from `ADD_ORDER_LINES` on a fresh order. Predicted result if the
-  fixes are right: U.Price 250.00/40.00, line totals 450.00/120.00, and
-  order totals of exactly 570.00 net / 108.30 VAT / 678.30 gross.
-
-  Also noted, not fixed: `verify_order_saved` screenshots the item grid's
-  on-screen rectangle without ensuring the Order tab is actually in front,
-  so an occluded window reads 0 rows (hit while resuming - the real
-  workflow gets away with it because `save_order` leaves Fakturama
-  foreground immediately before).
-
-## Future work
-
-- `add_order_line` originally inserted a blank row (the Items toolbar's
-  second Image, "add a blank row") and typed every cell by hand -
-  superseded (2026-09-06) by the first Image's "Select a product" picker
-  instead (structurally identical to `_attach_debtor_to_order`'s "Select
-  the address"), which fills Item No./Name/Description/Price/VAT
-  straight from the Product's own catalog record. This was a genuine
-  design fix, not just a workaround: the blank-row approach hit three
-  separate live bugs in one run - Name opens its own unprobed popup
-  editor rather than editing inline; the VAT cell's dropdown-selection
-  didn't reliably take effect (line 1's VAT silently stayed "Tax-free"
-  even though a correct "19%" rate existed and no error was raised); and
-  vision-computed cell positions for two different columns (Item No. and
-  Discount) were confused with each other on a second line. Only Qty./
-  Discount are still filled cell-by-cell now (the catalog record has no
-  per-order quantity/discount), so the surface area for that class of bug
-  is much smaller, but not zero - if a future run shows either of those
-  two values landing in the wrong cell, the same vision-misidentification
-  risk is the first thing to check.
-- Match by the Debtor's own unique No./Customer ID, not by company name,
-  in `orchestrator/actions.py::_attach_debtor_to_order`'s "Select the
-  address" picker. Confirmed live (2026-09-06): that dialog's Company
-  column can render too narrow to show the full value (a real "Northstar
-  Office GmbH" row read back visibly clipped to "thstar Office ..."), so
-  an exact-text-match check against the untruncated target can never pass
-  even when the row is correct - every other resolver in this codebase
-  verifies its own search results independently
-  (`entity_resolution.matching.exact_text_matches`), but this dialog can't
-  do that the same way. The current fix instead trusts Fakturama's own
-  Search filtering and requires exactly one row after searching by
-  company name - a narrower guarantee, since it relies on Fakturama's
-  search semantics rather than independently confirming them. Matching by
-  No./Customer ID instead (short, never clipped, visible in this same
-  grid) would restore independent exact-match verification, but needs
-  `entity_resolution.debtor.resolve_debtor` (`ResolvedEntity`) to capture
-  and expose that identifier first - not done because it touches
-  `entity_resolution/models.py`/`debtor.py` beyond this task's scope.
-- Localization, and accepts different formats to numbers, dates, currencies,..., etc.
-- Country-code→name mapping for `debtor.py`'s Country combo: if
-  Fakturama's real Country options turn out to be full names ("Germany")
-  while normalized data holds an ISO code ("DE"), `combos.select_exact_option`
-  correctly fails closed to manual review rather than guessing — see
-  `Doc/adr/0006-combo-selection.md`, Consequences.
-- VM verification for `entity_resolution/combos.py`'s two coordinate-click
-  assumptions (not blocking — both fail closed if wrong, they just haven't
-  been tried against a live window yet): the captured screenshot's pixels
-  map 1:1 to screen coordinates (no DPI scaling), and a combo's dropdown
-  renders within `main_window`'s bounding rectangle rather than
-  overflowing it — see `Doc/adr/0006-combo-selection.md`.
-- Rich partial-state capture for manual review (deferred from Section 6,
-  `Doc/adr/0005-error-handling.md`): extend `ManualReviewRequired` with an
-  optional payload (e.g. `details`), thread it through the ~10 existing
-  raise sites across extraction/normalization/entity_resolution/
-  verification, and add a `Decimal`/`date`-aware JSON encoder so a queue
-  entry can carry the actual `NormalizedOrder`/ambiguous candidates, not
-  just `step`/`reason`. `manual_review.route_to_manual_review` already
-  forwards a `details` attribute via `getattr` if set, so this is additive
-  and needs no further change to that function.
-- Per-entry manual-review files (one JSON file per stuck order, e.g. under
-  `out/manual_review/`) plus a separate human-readable log, if the single
-  `out/manual_review_queue.jsonl` append-only file proves insufficient
-  once a human/tool actually processes entries (no claim/delete workflow
-  today) — see `Doc/adr/0005-error-handling.md`'s Consequences.
+1. **`Data > Documents` is unprobed** — the one screen with no VM probe at
+   all. Tasks 4.5/5.5 prescribe it as an independent second check on the
+   saved Order and Invoice; verification currently reads the open editor's
+   own fields back instead. Probe with `spikes/uia_probe_editor.py`, then add
+   a vision-grounded grid read (its rows will be UIA-invisible like every
+   other Fakturama list). See ADR 0004's Consequences.
+2. **Items-grid geometry on a narrow window — needs a VM check.**
+   `add_order_line` measures the grid's own separator lines and requires all
+   10 columns (`ORDER_LINE_GRID_COLUMNS`) to be visible in one capture. On a
+   dev box during the 2026-09-06 session, horizontal scroll put Qty. and
+   Discount out of view together at every position tried; a later clean run
+   on a fresh process never reproduced it. Fails closed either way, so not
+   unsafe — but if it recurs on the real VM, the fix is scroll-and-re-measure
+   rather than one capture.
+3. **Richer manual-review payloads** (deferred from Section 6, ADR 0005):
+   give `ManualReviewRequired` an optional `details` payload, thread it
+   through the ~10 raise sites, and add a `Decimal`/`date`-aware JSON
+   encoder so a queue entry can carry the actual `NormalizedOrder`.
+   `route_to_manual_review` already forwards `details` via `getattr`, so
+   this is purely additive.
+4. **Per-entry manual-review files** (one JSON per stuck order under
+   `out/manual_review/`) plus a human-readable log, if the single
+   append-only `out/manual_review_queue.jsonl` proves insufficient once a
+   human or tool actually processes entries — there's no claim/delete
+   workflow today. ADR 0005's Consequences.
+5. **VM verification for `combos.py`'s two coordinate-click assumptions**
+   (not blocking — both fail closed): that screenshot pixels map 1:1 to
+   screen coordinates (no DPI scaling), and that a dropdown renders inside
+   `main_window`'s rectangle. ADR 0006.
+6. **Country-code → name mapping** for the Debtor Country combo: if
+   Fakturama's options are full names ("Germany") while normalized data
+   holds an ISO code ("DE"), `select_exact_option` fails closed to manual
+   review rather than guessing. ADR 0006.
+7. **Localization** generally — accepting other number, date, and currency
+   formats. `comparisons.parse_ui_date`'s month-name forms resolve through
+   `LC_TIME`, which nothing sets, so a German-locale Fakturama
+   (`18. Juli 2026`) would fail closed.
+8. **Task-spec gaps** (Order Date, currency comparison, address read-back,
+   Debtor matching by Customer ID, incomplete Debtor/VAT/Payment/Product
+   master-data fields, the stubbed OCR pass) — listed and ranked in
+   [README.md](README.md#next-steps).
