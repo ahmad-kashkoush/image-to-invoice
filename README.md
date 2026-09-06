@@ -1,9 +1,9 @@
 
 # Fakturama Automation
 
-See [Doc/Design.md](Doc/Design.md) for the architecture and design decisions,
-and [Next Steps](#next-steps) for what the build is missing and what I would
-do with three more hours.
+* [Design Document](Doc/Design.md).
+* [What would I do if I have 3 more hours](#next-steps)
+
 
 Takes a single order image, extracts and normalizes its data via a vision
 LLM, and drives Fakturama's UI to produce a saved Order, a linked Invoice, and the correct payment status.
