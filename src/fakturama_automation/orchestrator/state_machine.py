@@ -49,6 +49,7 @@ from fakturama_automation.ui_automation.exceptions import (
     AmbiguousControlError,
     ControlNotFoundError,
     DialogTimeoutError,
+    WindowFocusError,
 )
 from fakturama_automation.verification.invoice_verification import verify_invoice_matches_order
 from fakturama_automation.verification.order_verification import verify_order_saved
@@ -69,7 +70,12 @@ class WorkflowState(enum.Enum):
     APPLY_AND_VERIFY_PAYMENT = "apply_and_verify_payment"
     DONE = "done"
 
-_UI_DISCOVERY_ERRORS = (ControlNotFoundError, AmbiguousControlError, DialogTimeoutError)
+_UI_DISCOVERY_ERRORS = (
+    ControlNotFoundError,
+    AmbiguousControlError,
+    DialogTimeoutError,
+    WindowFocusError,
+)
 
 
 def run_workflow(
@@ -113,7 +119,9 @@ def run_workflow(
 
         state = WorkflowState.ADD_ORDER_LINES
         for index, item in enumerate(order.line_items):
-            actions.add_order_line(app, window, item, client=client, settle_seconds=settle_seconds)
+            actions.add_order_line(
+                app, window, item, position=index + 1, client=client, settle_seconds=settle_seconds
+            )
             if not check_line_total(item, DEFAULT_LINE_TOTAL_TOLERANCE):
                 raise ManualReviewRequired(
                     state.value,

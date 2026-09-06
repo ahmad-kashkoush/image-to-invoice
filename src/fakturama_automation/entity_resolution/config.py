@@ -44,6 +44,16 @@ DEBTOR_FORM_CUSTOMER_ID_AUTO_ID = "133128"
 
 PRODUCT_NEW_BUTTON_TITLE = "Create a new product"
 
+# The product's price field is Fakturama's GROSS price - the label says so
+# literally, and a live run confirmed it behaves that way: a net figure
+# typed here came back as net / (1 + VAT) in every Order line built from
+# that catalog record. product.py converts net -> gross before typing
+# (normalization.validators.gross_from_net). Doubles as the price-basis
+# check: if this app were ever configured for net-price entry the label
+# would read "Price (net)" and find_control would fail closed rather than
+# silently writing a net figure into a gross field.
+PRODUCT_PRICE_GROSS_LABEL_NAME = "Price (gross)"
+
 # -- VAT rate ---------------------------------------------------------------
 # Fakturama's own create form calls this entity "TAX Rate", though its nav
 # label says "VATs". Name/Value selected by accessible name, same reason as

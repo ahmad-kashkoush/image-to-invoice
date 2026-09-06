@@ -62,10 +62,56 @@ ORDER_ITEMS_LABEL_NAME = "Items"
 ORDER_SELECT_PRODUCT_DIALOG_TITLE = "Select a product"
 ORDER_SELECT_PRODUCT_SEARCH_COLUMNS = ["Item No.", "Name", "Description", "Stock", "Price"]
 
-# Only Qty./Discount remain to fill after the pick (the catalog record has
-# no per-order quantity/discount) - Fakturama visually highlights the
-# newly-added row.
-ORDER_LINE_GRID_QTY_DISCOUNT_COLUMNS = ["Qty.", "Discount"]
+# Cells filled in by hand after the pick. Qty./Discount because the catalog
+# record has no per-order quantity or discount; Item No. because the picked
+# row does not reliably carry the product's SKU: confirmed live, a line
+# added from a product created in that same run showed "10" there (an
+# internal record number) while the product's own Item Number field, and
+# the Products list, both correctly read "CHR-ERG-01". An order built from
+# pre-existing products showed the SKU. Rather than depend on which of
+# those Fakturama does, the SKU is written explicitly - and then verified,
+# like every other cell.
+ORDER_LINE_GRID_FILL_COLUMNS = ["Item No.", "Qty.", "Discount"]
+ORDER_LINE_GRID_SKU_COLUMN = "Item No."
+
+# The row to fill is the line's own 1-based position, which the state
+# machine knows because it adds lines in order - not whichever row
+# Fakturama happens to be highlighting, and not a cell whose content is
+# what's in question. ORDER_LINE_FILL_ATTEMPTS re-measures the grid from a
+# fresh screenshot and retries if the read-back afterwards disagrees.
+# Every column the Items grid physically draws, left to right - including
+# the ones nothing reads ("Pos.", "Picture"), because cells are located by
+# counting columns off the grid's own separator lines
+# (ui_automation.grid_geometry), so the list has to match the rendering
+# exactly, not just name the interesting columns. Distinct from
+# verification.config.ORDER_ITEMS_GRID_COLUMNS, which is the subset read
+# back by the vision grid read.
+ORDER_LINE_GRID_COLUMNS = [
+    "Pos.",
+    "Qty.",
+    "Item No.",
+    "Picture",
+    "Name",
+    "Description",
+    "VAT",
+    "U.Price",
+    "Discount",
+    "Price",
+]
+ORDER_LINE_FILL_ATTEMPTS = int(os.environ.get("FAKTURAMA_ORCHESTRATOR_LINE_FILL_ATTEMPTS", "2"))
+
+# Measuring the grid is a read, so a bad frame is retried rather than
+# failed on: capturing right after the product picker closes can catch the
+# grid mid-relayout, which measured as 8 columns of a 10-column grid on a
+# live run and stopped an otherwise-correct order. Re-capturing a moment
+# later read it correctly. A grid that is genuinely clipped still fails
+# closed after these attempts.
+GRID_MEASURE_ATTEMPTS = int(os.environ.get("FAKTURAMA_ORCHESTRATOR_GRID_MEASURE_ATTEMPTS", "3"))
+
+# Re-selecting the Order tab after entity resolution navigated away can
+# silently not take, leaving the editor's own fields unexposed to UIA - see
+# actions._reactivate_editor.
+EDITOR_ACTIVATE_ATTEMPTS = int(os.environ.get("FAKTURAMA_ORCHESTRATOR_EDITOR_ACTIVATE_ATTEMPTS", "3"))
 
 # -- Order editor: pricing mode ----------------------------------------------
 

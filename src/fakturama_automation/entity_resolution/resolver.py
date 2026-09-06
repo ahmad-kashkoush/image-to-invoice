@@ -79,14 +79,26 @@ def search_grid_exact(
     grid's own container Pane has the same auto_id instability but a
     stable per-entity accessible name, so `grid_pane_name` locates it
     instead.
+
+    The grid Pane is located FIRST, before the search box, even though it
+    isn't read until the end. Callers reach here immediately after clicking
+    a Navigation View item to switch lists, and that Pane is the only
+    bounded-retry proof this list is the one actually on screen - "Search:"
+    is not: several screens carry one (the Order editor has its own), so
+    typing into whichever one happens to be exposed while the list is still
+    coming up searches the wrong screen and reads an empty grid. Live
+    consequence: a debtor that plainly existed came back as zero matches,
+    the run went on to create it, and Fakturama itself caught the duplicate
+    with a modal warning - which disabled the main window and turned the
+    next set_text into a raw COMError.
     """
+    grid_pane = controls.find_control(
+        parent, "Pane", name=grid_pane_name, timeout_seconds=timeout_seconds
+    )
     search_label = controls.find_control(parent, "Text", name="Search:", timeout_seconds=timeout_seconds)
     search_edit = controls.find_control(search_label.parent(), "Edit", timeout_seconds=timeout_seconds)
     search_edit.set_text(key)
     time.sleep(settle_seconds)
 
-    grid_pane = controls.find_control(
-        parent, "Pane", name=grid_pane_name, timeout_seconds=timeout_seconds
-    )
     image_bytes = vision_grounding.capture_control_image(grid_pane)
     return vision_grounding.read_grid_rows(image_bytes, columns=columns, client=vision_client)

@@ -13,6 +13,7 @@ from fakturama_automation.entity_resolution import combos, config, matching, res
 from fakturama_automation.entity_resolution.models import ResolvedEntity
 from fakturama_automation.entity_resolution.vat_rate import resolve_vat_rate
 from fakturama_automation.normalization.models import NormalizedLineItem
+from fakturama_automation.normalization.validators import gross_from_net
 from fakturama_automation.ui_automation import controls
 
 _SEARCH_COLUMNS = ["Item Number"]
@@ -85,6 +86,14 @@ def _create_product(main_window: Any, item: NormalizedLineItem, *, client: Any =
     the Pane immediately following the "Price (gross)" Text in their
     shared parent, the same sibling-Pane pattern debtor.py uses.
 
+    That price field is GROSS, and the line item's price is net, so the
+    value typed is converted first (validators.gross_from_net). Writing the
+    net figure straight in - the previous behavior - made Fakturama derive
+    a net price of net / (1 + VAT) for every Order line built from this
+    record: confirmed live, a 250.00 net chair became $210.08 a unit and
+    $378.15 for two, with nothing raising an error until final
+    verification.
+
     Every field is filled via controls.type_text (real keystrokes), not
     set_text(): set_text() can silently fail to persist a freshly-created
     record's field through Save with no reliable rule for which field is
@@ -100,11 +109,11 @@ def _create_product(main_window: Any, item: NormalizedLineItem, *, client: Any =
         controls.type_text(controls.find_control(main_window, "Edit", name="Name"), item.description)
 
     if item.unit_net_price:
-        price_label = controls.find_control(main_window, "Text", name="Price (gross)")
+        price_label = controls.find_control(main_window, "Text", name=config.PRODUCT_PRICE_GROSS_LABEL_NAME)
         siblings = price_label.parent().children()
         price_pane = siblings[siblings.index(price_label) + 1]
         price_edit = price_pane.descendants(control_type="Edit")[0]
-        controls.type_text(price_edit, str(item.unit_net_price))
+        controls.type_text(price_edit, str(gross_from_net(item.unit_net_price, item.vat_percent)))
 
     # Selected by reading the combo's real, currently-open options and
     # clicking the matching one (combos.select_vat_option) - never a

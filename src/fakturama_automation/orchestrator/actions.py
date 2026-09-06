@@ -20,10 +20,15 @@ from fakturama_automation.entity_resolution import debtor, payment_method, produ
 from fakturama_automation.error_handling.exceptions import ManualReviewRequired
 from fakturama_automation.normalization.models import NormalizedLineItem, NormalizedOrder
 from fakturama_automation.orchestrator import config
-from fakturama_automation.ui_automation import controls, vision_grounding
+from fakturama_automation.ui_automation import controls, grid_geometry, vision_grounding
 from fakturama_automation.ui_automation.exceptions import ControlNotFoundError, DialogTimeoutError
 from fakturama_automation.verification import comparisons, readback
 from fakturama_automation.verification import config as verification_config
+
+# Matches state_machine.WorkflowState.ADD_ORDER_LINES.value, so a line-entry
+# problem raised here and one raised by the state loop land in the manual
+# review queue under the same step.
+_ADD_LINES_STEP = "add_order_lines"
 
 
 def open_new_order(app: Any) -> Any:
@@ -67,10 +72,9 @@ def populate_order_fields(
     # same-titled Order tab is open (e.g. a prior run's own never-saved
     # draft), which the reference-based approach sidesteps entirely.
     main_window = app.main_window()
-    controls.focus(main_window)
-    window.set_focus()
-
-    cust_ref_edit = controls.find_control(main_window, "Edit", name=verification_config.ORDER_CUST_REF_EDIT_NAME)
+    cust_ref_edit = _reactivate_editor(
+        main_window, window, probe_name=verification_config.ORDER_CUST_REF_EDIT_NAME
+    )
     cust_ref_edit.set_text(order.external_reference)
 
     _set_pricing_mode_net(main_window)
@@ -78,6 +82,45 @@ def populate_order_fields(
     _attach_debtor_to_order(
         app, main_window, order.debtor_company_name, client=client, settle_seconds=settle_seconds
     )
+
+
+def _reactivate_editor(
+    main_window: Any,
+    window: Any,
+    *,
+    probe_name: str,
+    probe_type: str = "Edit",
+    attempts: int = config.EDITOR_ACTIVATE_ATTEMPTS,
+    timeout_seconds: float = config.DIALOG_TIMEOUT_SECONDS,
+) -> Any:
+    """Re-select the editor tab `window` and return one of its own controls,
+    confirming its content is actually exposed again.
+
+    Eclipse stops exposing a tab's content to UI Automation once you
+    navigate away from it, and entity resolution navigates away every time
+    (the Debtor/Product/Payment lists are other tabs). `set_focus()` on the
+    held Pane reference is what brings it back - but it can silently not
+    take, and then the very next lookup fails with "no Edit control named
+    'Cust.Ref.' found", as if the editor were gone. Observed live, and
+    increasingly likely as leftover editor tabs pile up from earlier runs.
+
+    So the activation is retried until a control that only exists inside
+    this editor can be found, rather than assumed to have worked. Retrying
+    is safe: `set_focus()` selects a tab, it doesn't change anything in the
+    document.
+    """
+    last_error: ControlNotFoundError | None = None
+    for _attempt in range(attempts):
+        controls.focus(main_window)
+        window.set_focus()
+        try:
+            return controls.find_control(
+                main_window, probe_type, name=probe_name, timeout_seconds=timeout_seconds
+            )
+        except ControlNotFoundError as exc:
+            last_error = exc
+    assert last_error is not None
+    raise last_error
 
 
 def _set_pricing_mode_net(main_window: Any) -> None:
@@ -159,6 +202,7 @@ def add_order_line(
     window: Any,
     item: NormalizedLineItem,
     *,
+    position: int,
     client: Any = None,
     settle_seconds: float = config.SETTLE_SECONDS,
 ) -> None:
@@ -177,11 +221,16 @@ def add_order_line(
     popup editor for Name, an unreliable VAT dropdown, confused cell
     positions across columns).
 
-    Only Qty. and Discount remain to fill after the pick, since the
-    catalog record has no notion of a specific order's quantity or
-    discount - Fakturama visually highlights the newly-added row,
-    vision_grounding.read_active_row_cells locates its per-column cells,
-    and `_fill_grid_text_cell` commits each value.
+    `_fill_and_verify_line_cells` then fills the cells the pick doesn't
+    reliably supply - Qty./Discount (the catalog record has no per-order
+    quantity or discount) and Item No. (see config.ORDER_LINE_GRID_FILL_
+    COLUMNS: the picked row can carry an internal record number there
+    instead of the SKU) - locating the row by its `position` and reading
+    it back to confirm every value landed.
+
+    `position` is the line's 1-based position in the order, which is also
+    what the grid's Pos. column shows, since the state machine adds lines
+    in order.
 
     `window` (the New Order editor's own Pane from open_new_order) is used
     to re-select this specific Order's tab after resolving the Product -
@@ -190,15 +239,14 @@ def add_order_line(
     product.resolve_product(app, item, client=client, settle_seconds=settle_seconds)
 
     main_window = app.main_window()
-    controls.focus(main_window)
     # Re-select this Order's own tab: resolving the Product switches the
     # Navigation View away from it, same reason populate_order_fields
-    # re-selects it after resolving the Debtor/Payment Method - see that
-    # function's own comment for why this uses window.set_focus() on the
-    # already-held Pane reference, not a fresh find_control(TabItem, ...).
-    window.set_focus()
-
-    items_label = controls.find_control(main_window, "Text", name=config.ORDER_ITEMS_LABEL_NAME)
+    # re-selects it after resolving the Debtor/Payment Method - and
+    # confirmed the same way, by finding a control that only exists inside
+    # this editor (see _reactivate_editor).
+    items_label = _reactivate_editor(
+        main_window, window, probe_name=config.ORDER_ITEMS_LABEL_NAME, probe_type="Text"
+    )
     toolbar_siblings = items_label.parent().children()
     pick_product_image = toolbar_siblings[toolbar_siblings.index(items_label) + 1]
 
@@ -211,7 +259,7 @@ def add_order_line(
         columns=config.ORDER_SELECT_PRODUCT_SEARCH_COLUMNS,
         client=client,
         settle_seconds=settle_seconds,
-        step="add_order_lines",
+        step=_ADD_LINES_STEP,
         not_one_row_reason=lambda count, rows: (
             f"{count} rows in the \"Select a product\" dialog after searching for SKU "
             f"'{item.sku}' (expected exactly one)"
@@ -231,19 +279,162 @@ def add_order_line(
     # New Order tab was never navigated away from (a modal dialog opened
     # and closed on top of it, not a tab switch), so the reference from
     # before opening it is still good.
-    grid_pane = readback.items_grid_pane(main_window, items_label=items_label)
-    image_bytes = vision_grounding.capture_control_image(grid_pane)
-    cells = vision_grounding.read_active_row_cells(
-        image_bytes, columns=config.ORDER_LINE_GRID_QTY_DISCOUNT_COLUMNS, client=client
+    _fill_and_verify_line_cells(
+        main_window, items_label, item, position=position, client=client, settle_seconds=settle_seconds
     )
-    row_bounds = grid_pane.rectangle()
 
-    def screen_point_for(column: str) -> tuple[int, int]:
-        cx, cy, cwidth, cheight = cells[column]
-        return (row_bounds.left + cx + cwidth // 2, row_bounds.top + cy + cheight // 2)
 
-    _fill_grid_text_cell(main_window, screen_point_for("Qty."), str(item.quantity))
-    _fill_grid_text_cell(main_window, screen_point_for("Discount"), str(item.discount))
+def _fill_and_verify_line_cells(
+    main_window: Any,
+    items_label: Any,
+    item: NormalizedLineItem,
+    *,
+    position: int,
+    client: Any,
+    settle_seconds: float,
+    attempts: int = config.ORDER_LINE_FILL_ATTEMPTS,
+) -> None:
+    """Fill the just-added line's Item No./Qty./Discount cells, then read
+    the whole row back and confirm it matches the line item - retrying the
+    fill from a freshly-located row, and failing closed if it still doesn't
+    take.
+
+    Both halves of this exist because a live run wrote a line's Qty.
+    into nowhere and said nothing: the second line item's quantity stayed
+    at Fakturama's default 1.00 while the first line's 2 landed, and the
+    run carried on to save an order that was simply wrong. There is no UIA
+    row/column structure in this grid, so a cell is written by clicking a
+    screen coordinate computed from a vision read of a screenshot - a write
+    that can miss the cell entirely, and, typed into no focused editor,
+    leaves no trace.
+
+    Cells are located by measuring the grid's own separator lines
+    (ui_automation.grid_geometry) and counting columns off them, with the
+    row taken from `position` - lines are added in order, so the caller
+    already knows which row it just added. Neither half is guessed: not
+    Fakturama's highlight (the original anchor, a guess about the app's
+    selection state), and not a vision read of the cell boxes (the next
+    thing tried, and measurably wrong - it put a line's quantity in the
+    Item No. column and its discount in the Name column, live).
+
+    The read-back reuses verification.comparisons.line_row_problems, so it
+    checks every column Section 5 checks - the three written here, but also
+    the U.Price/VAT/Price the catalog record supplied - which puts the
+    check at the point the state machine's own docstring always said it
+    belonged: immediately after entry, on the line just entered, instead of
+    at final verification with the order already saved.
+
+    A retry cannot undo a stray value the previous attempt typed somewhere
+    else; it re-locates and rewrites the target row only. The final
+    verify_order_saved read-back is what catches collateral damage to
+    another row.
+    """
+    values = {
+        config.ORDER_LINE_GRID_SKU_COLUMN: item.sku,
+        "Qty.": str(item.quantity),
+        "Discount": str(item.discount),
+    }
+    problems: list[str] = []
+    for _attempt in range(attempts):
+        grid_pane, geometry = _measure_items_grid(
+            main_window, items_label, settle_seconds=settle_seconds
+        )
+        row_bounds = grid_pane.rectangle()
+
+        for column in config.ORDER_LINE_GRID_FILL_COLUMNS:
+            cx, cy = geometry.cell_center(
+                config.ORDER_LINE_GRID_COLUMNS.index(column), position - 1
+            )
+            point = (row_bounds.left + cx, row_bounds.top + cy)
+            _fill_grid_text_cell(main_window, point, values[column], column=column)
+        time.sleep(settle_seconds)
+
+        problems = _line_row_problems(main_window, items_label, item, client=client)
+        if not problems:
+            return
+
+    raise ManualReviewRequired(
+        _ADD_LINES_STEP,
+        f"line {position} ('{item.sku}') still wrong after {attempts} fill attempt(s): " + "; ".join(problems),
+    )
+
+
+def _measure_items_grid(
+    main_window: Any,
+    items_label: Any,
+    *,
+    settle_seconds: float,
+    attempts: int = config.GRID_MEASURE_ATTEMPTS,
+) -> tuple[Any, grid_geometry.GridGeometry]:
+    """Screenshot the Items grid and measure its column/row geometry,
+    re-capturing on a frame that doesn't measure cleanly.
+
+    Two separate things can make one capture unusable, and both are
+    transient. The window may not be in front - the capture is a
+    screen-region grab, so an occluded window is photographed as whatever
+    is on top of it (live, a grid capture came back showing this project's
+    own editor). And the grid may be mid-relayout, right after the product
+    picker closes - live, that measured as 8 columns of a 10-column grid
+    and stopped an order whose first line was already perfect.
+
+    Re-reading is safe in a way re-writing is not: this only measures, so
+    the fail-closed rule is served by still raising once the attempts are
+    spent, not by refusing to look twice.
+    """
+    last_error: ManualReviewRequired | None = None
+    for attempt in range(attempts):
+        controls.focus_foreground(main_window)
+        controls.move_pointer_away(main_window)
+        grid_pane = readback.items_grid_pane(main_window, items_label=items_label)
+        try:
+            geometry = grid_geometry.read_grid_geometry(
+                vision_grounding.capture_control_image(grid_pane),
+                expected_columns=len(config.ORDER_LINE_GRID_COLUMNS),
+                step=_ADD_LINES_STEP,
+            )
+        except ManualReviewRequired as exc:
+            last_error = exc
+            if attempt + 1 < attempts:
+                time.sleep(settle_seconds)
+            continue
+        return grid_pane, geometry
+    assert last_error is not None
+    raise last_error
+
+
+def _line_row_problems(
+    main_window: Any, items_label: Any, item: NormalizedLineItem, *, client: Any
+) -> list[str]:
+    """Read the Items grid back and compare the row for item.sku against
+    the line item, returning one message per discrepant column (or per
+    row-identification problem).
+
+    Exact-match on the Item No. column, zero-or-many being a problem in
+    itself - the same shape entity_resolution.matching applies to every
+    search result.
+    """
+    controls.focus_foreground(main_window)
+    # The pointer is still on the last cell written, whose tooltip would
+    # otherwise be drawn over the row about to be read back.
+    controls.move_pointer_away(main_window)
+    grid_pane = readback.items_grid_pane(main_window, items_label=items_label)
+    rows = vision_grounding.read_grid_rows(
+        vision_grounding.capture_control_image(grid_pane),
+        columns=verification_config.ORDER_ITEMS_GRID_COLUMNS,
+        client=client,
+        step=_ADD_LINES_STEP,
+    )
+    matches = [
+        row
+        for row in rows
+        if comparisons.text_equals(item.sku, row.get(config.ORDER_LINE_GRID_SKU_COLUMN, ""))
+    ]
+    if len(matches) != 1:
+        return [
+            f"{len(matches)} row(s) in the Items grid have Item No. '{item.sku}' after adding it "
+            f"(expected exactly one, out of {len(rows)} row(s) read)"
+        ]
+    return comparisons.line_row_problems(item, matches[0])
 
 
 def _pick_row_via_picker(
@@ -473,7 +664,7 @@ def _picker_grid_pane(search_label: Any) -> Any:
     return node.children()[1]
 
 
-def _fill_grid_text_cell(main_window: Any, point: tuple[int, int], value: str) -> None:
+def _fill_grid_text_cell(main_window: Any, point: tuple[int, int], value: str, *, column: str = "?") -> None:
     """Click a grid cell to select it, then type value directly: Ctrl+A
     (select whatever it already holds) + Delete, then the value, then Tab
     to commit.
@@ -485,12 +676,29 @@ def _fill_grid_text_cell(main_window: Any, point: tuple[int, int], value: str) -
     single click to select the cell, followed by keyboard input straight
     to main_window with no Edit-lookup step, reproduces the same edit
     state and commits correctly every time.
+
+    A failure to type at all is converted to ManualReviewRequired naming
+    the column, rather than escaping as a raw pywinauto error the state
+    machine doesn't catch: some of this grid's cells open their own modal
+    popup editor when clicked (Description's "position description" window
+    - hit live when a mislocated click landed there), and a modal disables
+    the main window, so the very next keystroke raises instead of going
+    anywhere.
     """
     controls.focus(main_window)
     main_window.click_input(coords=point, absolute=True)
-    main_window.type_keys("^a{DELETE}")
-    main_window.type_keys(controls.escape_send_keys(value), with_spaces=True)
-    main_window.type_keys("{TAB}")
+    try:
+        main_window.type_keys("^a{DELETE}")
+        main_window.type_keys(controls.escape_send_keys(value), with_spaces=True)
+        main_window.type_keys("{TAB}")
+    except ManualReviewRequired:
+        raise
+    except Exception as exc:  # noqa: BLE001 - pywinauto ElementNotEnabled and friends
+        raise ManualReviewRequired(
+            _ADD_LINES_STEP,
+            f"could not type {value!r} into the {column} cell at {point}: {type(exc).__name__} - "
+            "the main window was not accepting input (a modal popup editor may have opened)",
+        ) from exc
 
 
 def save_order(app: Any, window: Any) -> None:
@@ -548,9 +756,10 @@ def apply_payment(app: Any, invoice_window: Any, order: NormalizedOrder, *, clie
     The payment method combo is set via .select(), not set_text():
     clicking its option by screen coordinate is unreliable (confirmed
     live), while .select() worked directly every time. Date/Value are
-    filled via controls.type_text (real keystrokes): both are
-    freshly-appeared fields, the same class this codebase has repeatedly
-    found needs real keystrokes to persist.
+    written with controls.replace_text - real keystrokes, but clearing
+    first: Fakturama pre-fills Value with the invoice total, so typing the
+    total into it without clearing concatenated the two (a 678.30 invoice
+    read back as 678,678.30, live).
     """
     method_combo = readback.payment_method_combo(invoice_window)
     method_combo.select(order.payment_method)
@@ -567,8 +776,8 @@ def apply_payment(app: Any, invoice_window: Any, order: NormalizedOrder, *, clie
 
     if order.payment_date is not None:
         date_edit = readback.payment_date_edit(invoice_window)
-        controls.type_text(date_edit, order.payment_date.isoformat())
+        controls.replace_text(date_edit, order.payment_date.isoformat())
 
     _, _, gross_total = comparisons.order_level_totals(order)
     value_edit = controls.find_control(invoice_window, "Edit", name=verification_config.INVOICE_PAYMENT_VALUE_EDIT_NAME)
-    controls.type_text(value_edit, str(gross_total))
+    controls.replace_text(value_edit, str(gross_total))

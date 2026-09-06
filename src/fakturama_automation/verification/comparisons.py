@@ -25,7 +25,22 @@ _CURRENCY_SYMBOLS = re.compile(r"[€$£]|\bEUR\b|\bUSD\b|\bGBP\b", re.IGNORECAS
 # Mirrors normalization.normalizer's date parsing: ISO first, with an
 # unambiguous day-first fallback. Anything else does not parse (fails
 # closed), consistent with CLAUDE.md's parsing conventions.
-_DATE_FORMATS = ["%Y-%m-%d", "%d.%m.%Y"]
+#
+# The month-name forms are here because this parses text the UI *renders*,
+# not text a human wrote: the Invoice's payment-date widget is written as
+# ISO (orchestrator.actions.apply_payment) but redisplays the value in the
+# platform's medium date format ("Jul 18, 2026"), so a correctly applied
+# date read straight back was failing to parse. A spelled-out month can't
+# be confused for a day, so these stay unambiguous - a numeric slash date
+# (MM/DD vs DD/MM) still fails closed rather than being guessed.
+_DATE_FORMATS = [
+    "%Y-%m-%d",
+    "%d.%m.%Y",
+    "%b %d, %Y",
+    "%B %d, %Y",
+    "%d. %b %Y",
+    "%d. %B %Y",
+]
 
 
 def parse_money_text(text: str) -> Decimal | None:

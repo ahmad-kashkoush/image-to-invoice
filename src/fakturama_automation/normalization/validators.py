@@ -35,6 +35,22 @@ def recompute_line_total(item: NormalizedLineItem) -> Decimal:
     return total.quantize(MONEY_QUANTIZE, rounding=ROUND_HALF_UP)
 
 
+def gross_from_net(net_price: Decimal, vat_percent: Decimal) -> Decimal:
+    """Convert a net price to its VAT-inclusive gross equivalent:
+    net x (1 + vat_percent / 100), rounded to 2 places, half-up.
+
+    Every price this pipeline holds is net (CLAUDE.md's money convention),
+    but Fakturama's Product editor takes a GROSS price - its field is
+    labelled "Price (gross)" and it derives the net figure back out by
+    dividing by (1 + VAT). Typing a net price straight into it therefore
+    understates the product by exactly that factor everywhere it is later
+    used. The single place that conversion is expressed, so nothing
+    reimplements it - same rule as recompute_line_total above.
+    """
+    gross = net_price * (Decimal(1) + vat_percent / _HUNDRED)
+    return gross.quantize(MONEY_QUANTIZE, rounding=ROUND_HALF_UP)
+
+
 def check_line_total(item: NormalizedLineItem, tolerance: Decimal) -> bool:
     """Recompute a line's total from quantity, unit price, and discount and
     compare it to the source line total within tolerance.

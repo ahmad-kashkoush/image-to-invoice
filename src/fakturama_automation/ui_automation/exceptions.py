@@ -21,6 +21,17 @@ class AmbiguousControlError(Exception):
     """
 
 
+class WindowFocusError(Exception):
+    """Raised by controls.focus_foreground when a window cannot be brought
+    to the OS foreground within its timeout.
+
+    Matters because every grid read in this codebase is a screen-region
+    screenshot: an occluded window is captured as whatever is on top of it,
+    which reads as a perfectly plausible - and completely wrong - grid
+    rather than as an error.
+    """
+
+
 class DialogTimeoutError(Exception):
     """Raised by waits.wait_for_dialog / waits.wait_for_stable_row_count
     when polling for an expected dialog or window state does not succeed

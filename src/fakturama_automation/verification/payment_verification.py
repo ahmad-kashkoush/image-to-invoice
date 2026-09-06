@@ -9,7 +9,10 @@ clear and no date/value may have been invented.
 
 The payment-method combo and payment-date edit are blank-named, located
 structurally via readback.payment_method_combo/payment_date_edit - the
-same helpers orchestrator.actions.apply_payment uses to set them.
+same helpers orchestrator.actions.apply_payment uses to set them. Their
+contents are read with readback.field_value, never window_text(): on these
+controls window_text() returns the accessible name (blank here, so every
+comparison saw '') rather than what the field holds.
 
 The date/Value fields don't exist in the UI tree at all until "paid" is
 checked (readback.payment_details_pane), so this only reads them when the
@@ -38,7 +41,7 @@ def verify_payment_applied(invoice_window: Any, normalized_order: NormalizedOrde
     """
     problems: list[str] = []
 
-    method_text = readback.payment_method_combo(invoice_window).window_text()
+    method_text = readback.field_value(readback.payment_method_combo(invoice_window))
     if not comparisons.text_equals(normalized_order.payment_method, method_text):
         problems.append(f"payment method: expected '{normalized_order.payment_method}', UI shows '{method_text}'")
 
@@ -49,7 +52,7 @@ def verify_payment_applied(invoice_window: Any, normalized_order: NormalizedOrde
         if not is_paid_ui:
             problems.append("expected paid status PAID, but the paid checkbox is not checked")
         else:
-            date_text = readback.payment_date_edit(invoice_window).window_text()
+            date_text = readback.field_value(readback.payment_date_edit(invoice_window))
             if not comparisons.date_equals(normalized_order.payment_date, date_text):
                 problems.append(f"payment date: expected {normalized_order.payment_date}, UI shows '{date_text}'")
             value_text = readback.read_field_text(invoice_window, name=config.INVOICE_PAYMENT_VALUE_EDIT_NAME)
@@ -58,7 +61,7 @@ def verify_payment_applied(invoice_window: Any, normalized_order: NormalizedOrde
                 problems.append(f"Value: expected the full invoice total {gross_total}, UI shows '{value_text}'")
     elif is_paid_ui:
         problems.append("expected paid status not PAID, but the paid checkbox is checked")
-        date_text = readback.payment_date_edit(invoice_window).window_text()
+        date_text = readback.field_value(readback.payment_date_edit(invoice_window))
         value_text = readback.read_field_text(invoice_window, name=config.INVOICE_PAYMENT_VALUE_EDIT_NAME)
         if date_text.strip():
             problems.append(f"expected no payment date (status not PAID), UI shows '{date_text}'")

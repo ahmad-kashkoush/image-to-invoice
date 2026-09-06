@@ -9,7 +9,7 @@ instead of controls.find_all_controls.
 
 Split in two, matching ui_automation's existing seam (Doc/adr/0002):
 - capture_control_image: touches a live pywinauto control, Windows/VM-only.
-- read_grid_rows/read_combo_options/read_active_row_cells: pure w.r.t.
+- read_grid_rows/read_combo_options: pure w.r.t.
   their injectable `client` param (same pattern as
   extraction.vision_extractor.extract_from_image) - fully unit-testable.
 
@@ -37,7 +37,6 @@ from fakturama_automation.ui_automation import config
 
 _ROWS_TOOL_NAME = "record_grid_rows"
 _LOCATED_ROWS_TOOL_NAME = "record_grid_rows_located"
-_ACTIVE_ROW_CELLS_TOOL_NAME = "record_active_row_cells"
 _COMBO_OPTIONS_TOOL_NAME = "record_combo_options"
 
 _GRID_PROMPT_TEMPLATE = """\
@@ -67,26 +66,6 @@ and its bounding box in pixel coordinates within this image (top-left \
 origin): x, y, width, height, tightly enclosing the option's clickable \
 row. If no dropdown list is visible, call the tool with an empty options \
 list.
-
-Call the {tool_name} tool exactly once with the complete result.
-"""
-
-_ACTIVE_ROW_PROMPT_TEMPLATE = """\
-This image is a screenshot of an editable results grid/table from the
-Fakturama desktop application, with column headers: {columns}.
-
-Exactly one data row is the "active" row - it is visually highlighted
-(shaded/colored background, usually blue) to show it is currently selected
-for editing, unlike every other (white/unshaded) row. Locate that one
-active row only - ignore every other row in the grid.
-
-For each of this grid's columns, give the exact column name (copied
-verbatim from {columns}) and the active row's cell bounding box in pixel
-coordinates within this image (top-left origin): x, y, width, height,
-tightly enclosing that one cell (from the column's left boundary to its
-right boundary, at the active row's height) - even if the cell is empty or
-shows placeholder-looking text, still give its location, since it needs to
-be clicked. Give exactly one entry per column listed.
 
 Call the {tool_name} tool exactly once with the complete result.
 """
@@ -293,120 +272,6 @@ def read_grid_rows_located(
         ]
     except (KeyError, TypeError, ValueError) as exc:
         raise ManualReviewRequired(step=step, reason=f"malformed grid read result: {exc}") from exc
-
-
-def read_active_row_cells(
-    image_bytes: bytes,
-    *,
-    columns: list[str],
-    client: Any | None = None,
-    step: str = "ui_automation.read_active_row_cells",
-) -> dict[str, tuple[int, int, int, int]]:
-    """Locate the visually-highlighted "active" row's per-column cell
-    bounding boxes in a screenshot of an editable custom-rendered grid.
-
-    A new line's cells need to be *clicked* to open their inline editors,
-    but there's no UIA row/column structure to compute a click point from
-    (even the column headers aren't UIA-exposed). Fakturama visually
-    highlights the newly-inserted row, so this asks the vision model to
-    locate it directly rather than inferring position from a row index and
-    an assumed fixed row height.
-
-    Returns {column_name: (x, y, width, height)} in screenshot pixel
-    coordinates - the caller converts to screen coordinates using the
-    captured control's own on-screen rectangle. Same fail-closed handling
-    as read_grid_rows_located.
-
-    The schema represents each column as an array element carrying its own
-    name (`{"column": ..., "x": ..., ...}`), not an object keyed by column
-    name: a column name with a space ("Item No.") as an object key raises
-    a 400 from the API.
-    """
-    if client is None:
-        client = anthropic.Anthropic()
-
-    tool = {
-        "name": _ACTIVE_ROW_CELLS_TOOL_NAME,
-        "description": "Record the active (highlighted) row's per-column cell bounding boxes, exactly once.",
-        "input_schema": _active_row_cells_schema(),
-        "strict": True,
-    }
-    prompt = _ACTIVE_ROW_PROMPT_TEMPLATE.format(columns=", ".join(columns), tool_name=_ACTIVE_ROW_CELLS_TOOL_NAME)
-    image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
-
-    try:
-        response = client.messages.create(
-            model=config.VISION_GROUNDING_MODEL_ID,
-            max_tokens=config.VISION_GROUNDING_MAX_TOKENS,
-            tools=[tool],
-            tool_choice={"type": "tool", "name": _ACTIVE_ROW_CELLS_TOOL_NAME},
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {"type": "base64", "media_type": "image/png", "data": image_b64},
-                        },
-                        {"type": "text", "text": prompt},
-                    ],
-                }
-            ],
-        )
-    except Exception as exc:  # anthropic.APIError and friends, or a fake client's own errors
-        raise ManualReviewRequired(step=step, reason=f"vision active-row read failed: {exc}") from exc
-
-    if getattr(response, "stop_reason", None) == "refusal":
-        raise ManualReviewRequired(step=step, reason="vision active-row read refused the request")
-
-    tool_use_blocks = [b for b in response.content if getattr(b, "type", None) == "tool_use"]
-    if not tool_use_blocks:
-        raise ManualReviewRequired(
-            step=step, reason=f"vision active-row read did not return a {_ACTIVE_ROW_CELLS_TOOL_NAME} tool call"
-        )
-
-    block = tool_use_blocks[0]
-    if block.name != _ACTIVE_ROW_CELLS_TOOL_NAME:
-        raise ManualReviewRequired(step=step, reason=f"unexpected tool call '{block.name}'")
-
-    try:
-        cells = {
-            str(cell["column"]): (
-                int(cell["x"]),
-                int(cell["y"]),
-                int(cell["width"]),
-                int(cell["height"]),
-            )
-            for cell in block.input["cells"]
-        }
-    except (KeyError, TypeError, ValueError) as exc:
-        raise ManualReviewRequired(step=step, reason=f"malformed active-row read result: {exc}") from exc
-
-    missing = [column for column in columns if column not in cells]
-    if missing:
-        raise ManualReviewRequired(step=step, reason=f"active-row read result missing columns: {missing!r}")
-    return {column: cells[column] for column in columns}
-
-
-def _active_row_cells_schema() -> dict:
-    cell_schema = {
-        "type": "object",
-        "properties": {
-            "column": {"type": "string"},
-            "x": {"type": "integer"},
-            "y": {"type": "integer"},
-            "width": {"type": "integer"},
-            "height": {"type": "integer"},
-        },
-        "required": ["column", "x", "y", "width", "height"],
-        "additionalProperties": False,
-    }
-    return {
-        "type": "object",
-        "properties": {"cells": {"type": "array", "items": cell_schema}},
-        "required": ["cells"],
-        "additionalProperties": False,
-    }
 
 
 def _located_rows_schema(columns: list[str]) -> dict:

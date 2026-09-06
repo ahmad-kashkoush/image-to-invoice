@@ -5,8 +5,8 @@ from each re-deriving "how do I read a field's current text back".
 
 No pywinauto import here: `window` is whatever duck-typed pywinauto object
 the caller already holds, and only its documented methods (`window_text()`,
-`get_toggle_state()`) are called on it - keeps this module importable on
-macOS/Linux.
+`get_value()`, `get_toggle_state()`) are called on it - keeps this module
+importable on macOS/Linux.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from fakturama_automation.ui_automation import controls, vision_grounding
+from fakturama_automation.ui_automation.exceptions import ControlNotFoundError
 from fakturama_automation.verification import config
 
 
@@ -25,6 +26,51 @@ def window_title(window: Any) -> str:
     return window.window_text()
 
 
+def field_value(control: Any) -> str:
+    """Read a field control's current *value* - what the user sees typed in
+    it - not its accessible name.
+
+    `window_text()` is the wrong call for this and silently returns
+    something plausible instead of failing: pywinauto's uia EditWrapper
+    does not override it, so it resolves to UIAElementInfo.rich_text, which
+    asks for the TextPattern and falls back to the element's Name when
+    that's unavailable. Fakturama's SWT edits have no TextPattern, so every
+    such read came back as the field's own label - `window_text()` on the
+    Cust.Ref. edit returns "Cust.Ref.", never the order reference in it
+    (confirmed live, and visible in probes/probe-02-fill-create-order.txt,
+    which dumps `Edit - 'Cust.Ref.'` for an editor that had just been
+    filled in). Every field comparison built on it therefore compared a
+    label against a value and could never pass.
+
+    The ValuePattern is what carries the typed text (`get_value()`, with
+    legacy_properties()["Value"] as the fallback for a control pywinauto
+    doesn't wrap as an Edit - confirmed live that both return the real
+    value). A control exposing neither raises rather than degrading to the
+    name again: an unreadable field must stop the run, not quietly compare
+    equal to nothing.
+    """
+    try:
+        return str(control.get_value())
+    except Exception:  # noqa: BLE001 - no ValuePattern (pywinauto NoPatternInterfaceError) or not an Edit wrapper
+        pass
+    try:
+        # ComboBoxes carry their current setting as the selected item, not
+        # a value - the Invoice's payment-method combo among them.
+        return str(control.selected_text())
+    except Exception:  # noqa: BLE001 - not a combo, or nothing selected
+        pass
+    try:
+        value = control.legacy_properties().get("Value")
+    except Exception:  # noqa: BLE001 - no LegacyIAccessible pattern either
+        value = None
+    if value is None:
+        raise ControlNotFoundError(
+            f"control {control.window_text()!r} exposes neither a ValuePattern nor a legacy Value - "
+            "cannot read its contents"
+        )
+    return str(value)
+
+
 def read_field_text(
     window: Any,
     *,
@@ -33,7 +79,7 @@ def read_field_text(
     auto_id: str | None = None,
     timeout_seconds: float = config.DIALOG_TIMEOUT_SECONDS,
 ) -> str:
-    """Locate one field under window and read its current text.
+    """Locate one field under window and read its current value.
 
     A placeholder selector (name/auto_id == "", for a control not yet
     pinned by a VM probe - see verification/config.py) fails closed here:
@@ -42,7 +88,7 @@ def read_field_text(
     plausible-looking empty string.
     """
     control = controls.find_control(window, control_type, name=name, auto_id=auto_id, timeout_seconds=timeout_seconds)
-    return control.window_text()
+    return field_value(control)
 
 
 def read_toggle_state(
@@ -92,7 +138,20 @@ def read_grid(
     list/search results grids, reused here for the Order/Invoice editor's
     own item-row grid (also UIA-invisible - see Doc/adr/0003's
     Consequences section, which names this exact reuse).
+
+    Activates this editor's own tab and confirms its window is actually in
+    front first. The capture is a screen-region grab, so an occluded or
+    background tab is read as whatever is drawn over it - which surfaces as
+    a plausible-looking wrong grid (an empty one, typically: "expected 2
+    order lines, UI grid shows 0"), never as an error.
     """
+    window.set_focus()
+    top_level = window.top_level_parent()
+    controls.focus_foreground(top_level)
+    # And with the pointer parked clear of the grid: a tooltip left showing
+    # by the last click is drawn over the window, so it lands in the
+    # screenshot and hides whatever it covers.
+    controls.move_pointer_away(top_level)
     grid_pane = items_grid_pane(window)
     image_bytes = vision_grounding.capture_control_image(grid_pane)
     return vision_grounding.read_grid_rows(image_bytes, columns=columns, client=client, step=step)

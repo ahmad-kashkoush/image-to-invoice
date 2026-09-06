@@ -21,7 +21,11 @@ import time
 from typing import Any
 
 from fakturama_automation.ui_automation import waits
-from fakturama_automation.ui_automation.exceptions import AmbiguousControlError, ControlNotFoundError
+from fakturama_automation.ui_automation.exceptions import (
+    AmbiguousControlError,
+    ControlNotFoundError,
+    WindowFocusError,
+)
 
 
 def find_control(
@@ -82,6 +86,74 @@ def focus(main_window: Any) -> None:
     main_window.set_focus()
 
 
+def focus_foreground(
+    window: Any, timeout_seconds: float = 3.0, poll_interval_seconds: float = 0.2
+) -> None:
+    """Bring window to the OS foreground and confirm it actually got there,
+    retrying within timeout_seconds and raising WindowFocusError if not.
+
+    `focus()` above asks and moves on. That's fine before a click_input(),
+    which fails loudly if it lands somewhere unexpected, but not before a
+    screenshot: capture_as_image() grabs the control's screen rectangle, so
+    an occluded window is captured as whatever is drawn on top of it. That
+    is not a hypothetical - a grid capture during a live run came back
+    showing the editor this project is being written in, and the geometry
+    read of it reported "8 columns" for a 10-column grid. Wrong pixels are
+    indistinguishable from right ones downstream, so this confirms rather
+    than assumes.
+
+    Windows can refuse SetForegroundWindow outright when the calling
+    process isn't itself in the foreground, which is exactly the situation
+    an automation script runs in - hence retrying, and hence checking
+    GetForegroundWindow rather than trusting set_focus() to have worked.
+    Imported locally: win32gui only exists on Windows, and this module is
+    imported cross-platform.
+    """
+    import win32gui
+
+    deadline = time.monotonic() + timeout_seconds
+    handle = window.element_info.handle
+    while True:
+        try:
+            window.set_focus()
+        except Exception:  # noqa: BLE001 - a refused activation is retried, not raised
+            pass
+        if win32gui.GetForegroundWindow() == handle:
+            return
+        if time.monotonic() >= deadline:
+            foreground = win32gui.GetForegroundWindow()
+            raise WindowFocusError(
+                f"could not bring window {window.window_text()!r} (handle {handle}) to the "
+                f"foreground within {timeout_seconds}s - {win32gui.GetWindowText(foreground)!r} "
+                "is in front of it; a screenshot now would capture that window instead"
+            )
+        time.sleep(poll_interval_seconds)
+
+
+def move_pointer_away(window: Any, settle_seconds: float = 0.4) -> None:
+    """Park the mouse pointer at the bottom of window and wait for any
+    tooltip it was showing to disappear. Call before screenshotting.
+
+    click_input() leaves the pointer wherever it clicked, and Fakturama
+    then pops that control's tooltip - which is drawn *over* the window,
+    so it lands in any screenshot taken next. Confirmed live: after the
+    "Select a product" picker closes, the pointer is still resting on the
+    Items toolbar icon that opened it, and the resulting tooltip covered
+    the item grid's leading columns, which measured as an 8-column grid
+    where there are 10.
+
+    Parks at the bottom edge rather than off-window: tooltips render next
+    to the pointer, so anything that does appear there is far below the
+    editor's grids instead of on top of them, and the pointer never leaves
+    the application.
+    """
+    from pywinauto import mouse
+
+    rect = window.rectangle()
+    mouse.move(coords=(rect.left + rect.width() // 2, rect.bottom - 20))
+    time.sleep(settle_seconds)
+
+
 def set_text(
     control: Any, text: str, timeout_seconds: float = 5.0, poll_interval_seconds: float = 0.25
 ) -> None:
@@ -129,6 +201,25 @@ def type_text(control: Any, text: str) -> None:
     """
     control.click_input()
     control.type_keys(escape_send_keys(text), with_spaces=True)
+
+
+def replace_text(control: Any, text: str) -> None:
+    """Click into control, clear what it already holds, type text, and
+    commit with a trailing Tab.
+
+    For any field Fakturama pre-fills. type_text() above inserts at the
+    caret, so on a pre-filled field it concatenates instead of replacing -
+    live, that turned a payment Value of 678.30 typed over a default of
+    678.30 into 678,678.30, and (in the VAT rate form) left Value stuck at
+    its "0%" default no matter what was typed, which then broke that
+    record's own lookup on the next run. The trailing Tab matters
+    separately: some of these fields only commit what was typed when focus
+    leaves them.
+    """
+    control.click_input()
+    control.type_keys("^a{DELETE}")
+    control.type_keys(escape_send_keys(text), with_spaces=True)
+    control.type_keys("{TAB}")
 
 
 def find_all_controls(
