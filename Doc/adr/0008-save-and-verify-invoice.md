@@ -89,6 +89,16 @@ invoice number, so `verification/config.py` gains
 verification must not depend on the orchestrator - that dependency runs
 the other way.
 
+> **Amendment (2026-09-06, later the same day).** The duplication this
+> Decision reasoned its way into is gone, and the reasoning is why: both
+> declarations were symptoms of selectors being partitioned by *consuming
+> section* rather than by *screen*. `"New Invoice"` is now declared once, in
+> `ui_automation/screens.py`, which sits below both packages - so locating
+> the unsaved pane and detecting that it has been saved read the same
+> constant without either package depending on the other. Decisions 1-4 are
+> unchanged. See `0009`.
+
+
 ## Consequences
 
 - Verified live (2026-09-06): a full run from the order image completed

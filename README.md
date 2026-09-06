@@ -62,8 +62,10 @@ Or activate the environment first (`.venv\Scripts\Activate.ps1`) and drop the
 │   ├── normalization/           raw text → typed, validated values
 │   ├── entity_resolution/       exact-match search-then-create for master data
 │   ├── ui_automation/           pywinauto uia wrapper: locate, act, poll
+│   │                            (screens.py: every selector, by screen)
 │   ├── verification/            reads state back after every write
-│   ├── orchestrator/            the state machine over all of the above
+│   ├── orchestrator/            the state machine, plus steps/ (one
+│   │                            module per Fakturama screen it drives)
 │   └── error_handling/          stop point → out/manual_review_queue.jsonl
 ├── tests/                       pure-logic tests, mirroring the packages above
 ├── spikes/                      read-only UIA control-tree probes
@@ -105,15 +107,16 @@ If I have 3 more hours, I'll work on the following:
 
 #### Bugs & flaws
 
-* **Order Date is not written or verified.** Extracted correctly, but `populate_order_fields` only writes Cust. Ref. → Write Order Date and verify it on read-back.
-* **Currency is not verified.** Currency symbols are stripped before comparison → Compare the currency explicitly in `verification/comparisons.py`.
+* **Order Date is not written or verified.** Extracted correctly, but `orchestrator/steps/order_editor.py::populate_order_fields` only writes Cust. Ref. → Write Order Date and verify it on read-back.
+* **Currency is never extracted.** It is absent from the extraction schema and from both models, and both parsers strip currency symbols before comparing, so a `$` total verifies clean against a EUR order → Add `currency` to `RawOrder`/`NormalizedOrder` and compare it in `verification/comparisons.py`.
 * **Verification reads the open editor instead of `Data > Documents`.** → Verify saved Orders and Invoices from the Documents list.
 * **Addresses are not verified.** Cust. Ref., item lines, and totals are verified, but addresses are not → Read addresses back and compare them with the normalized record.
 
 #### Hardening
 
-* **Debtor matching does not follow task 2.3.** It currently relies on Fakturama's search returning exactly one row rather than verifying all five fields → Match using Customer ID for independent exact-match verification.
-- Refactor the whole project.
+* **Debtor matching does not follow task 2.3.** It currently relies on Fakturama's search returning exactly one row rather than verifying all five fields → Have `resolve_debtor` return the Customer ID (the `ResolvedEntity` it already builds is discarded by every caller) and match on it, which the Company column's clipping makes impossible today.
+* **Master-data creation is the one mutation with no verification.** Order save, Invoice creation, payment and Invoice save each read back; creating a Debtor/Product/VAT rate/Payment Method does not → Read the record back after Save, per task 2.12/3.12.
+* **Refactoring.** The P0 pass is done (`Doc/adr/0009`, `.claude/plans/refactoring-architecture-review.md`); P1 remains — one parsing module instead of three near-copies, and a golden-PNG test for `ui_automation/grid_geometry.py`.
 
 #### Nice to have requirements
 

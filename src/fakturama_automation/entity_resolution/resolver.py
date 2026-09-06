@@ -22,7 +22,7 @@ from typing import Any, Callable
 
 from fakturama_automation.entity_resolution import config
 from fakturama_automation.error_handling.exceptions import ManualReviewRequired
-from fakturama_automation.ui_automation import controls, vision_grounding
+from fakturama_automation.ui_automation import controls, locators, vision_grounding
 
 
 def resolve_exact_or_create(
@@ -73,12 +73,11 @@ def search_grid_exact(
     - a deliberate exception to this codebase's "poll, don't sleep" rule,
     since polling here would mean firing a vision API call per poll.
 
-    The search Edit is found structurally (the "Search:" Text, then the
-    Edit under its parent Pane), not by auto_id: this app's blank-named
-    controls get a fresh auto_id on every process launch. The results
-    grid's own container Pane has the same auto_id instability but a
-    stable per-entity accessible name, so `grid_pane_name` locates it
-    instead.
+    The search Edit is found structurally (ui_automation.locators), not by
+    auto_id: this app's blank-named controls get a fresh auto_id on every
+    process launch. The results grid's own container Pane has the same
+    auto_id instability but a stable per-entity accessible name, so
+    `grid_pane_name` locates it instead.
 
     The grid Pane is located FIRST, before the search box, even though it
     isn't read until the end. Callers reach here immediately after clicking
@@ -95,9 +94,8 @@ def search_grid_exact(
     grid_pane = controls.find_control(
         parent, "Pane", name=grid_pane_name, timeout_seconds=timeout_seconds
     )
-    search_label = controls.find_control(parent, "Text", name="Search:", timeout_seconds=timeout_seconds)
-    search_edit = controls.find_control(search_label.parent(), "Edit", timeout_seconds=timeout_seconds)
-    search_edit.set_text(key)
+    label = locators.search_label(parent, timeout_seconds=timeout_seconds)
+    locators.search_edit(label, timeout_seconds=timeout_seconds).set_text(key)
     time.sleep(settle_seconds)
 
     image_bytes = vision_grounding.capture_control_image(grid_pane)

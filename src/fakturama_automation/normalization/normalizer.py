@@ -24,7 +24,6 @@ from fakturama_automation.normalization.validators import (
     check_confidence,
     check_line_total,
     check_required_fields,
-    recompute_line_total,
 )
 
 # ISO first (the canonical format Fakturama and this pipeline standardize
@@ -99,7 +98,10 @@ def _normalize_address(address: RawAddress) -> NormalizedAddress:
 
 def _normalize_line_item(item: RawLineItem, index: int, failures: list[str]) -> NormalizedLineItem:
     prefix = f"line_items[{index}]"
-    normalized = NormalizedLineItem(
+    # recomputed_total is not assigned here: NormalizedLineItem computes it
+    # from its own fields, so it is correct for any line item however it was
+    # built, not only for ones this function produced.
+    return NormalizedLineItem(
         sku=_trim(item.sku),
         description=_trim(item.description),
         quantity=_parse_money(item.quantity, f"{prefix}.quantity", failures),
@@ -108,8 +110,6 @@ def _normalize_line_item(item: RawLineItem, index: int, failures: list[str]) -> 
         discount=_parse_percent(item.discount, f"{prefix}.discount", failures),
         source_line_total=_parse_money(item.source_line_total, f"{prefix}.source_line_total", failures),
     )
-    normalized.recomputed_total = recompute_line_total(normalized)
-    return normalized
 
 
 def _trim(value: str | None) -> str:

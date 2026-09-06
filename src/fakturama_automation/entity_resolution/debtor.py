@@ -1,8 +1,8 @@
 """Debtor resolution: search Fakturama by exact company name, create a new
 Debtor only if no exact match exists.
 
-Control identifiers below are pinned from live VM probes - see
-entity_resolution/config.py for the full selector inventory.
+Control identifiers are pinned from live VM probes and live in
+ui_automation/screens.py, the one selector inventory for every screen.
 """
 
 from __future__ import annotations
@@ -13,9 +13,7 @@ from typing import Any
 from fakturama_automation.entity_resolution import combos, config, matching, resolver
 from fakturama_automation.entity_resolution.models import ResolvedEntity
 from fakturama_automation.normalization.models import NormalizedOrder
-from fakturama_automation.ui_automation import controls
-
-_SEARCH_COLUMNS = ["Company Name"]
+from fakturama_automation.ui_automation import controls, locators, screens
 
 
 def resolve_debtor(
@@ -41,13 +39,13 @@ def resolve_debtor(
         _open_debtors_list(main_window)
         rows = resolver.search_grid_exact(
             main_window,
-            grid_pane_name="Debtors",
+            grid_pane_name=screens.DEBTORS_GRID_PANE_NAME,
             key=company_name,
-            columns=_SEARCH_COLUMNS,
+            columns=screens.DEBTORS_SEARCH_COLUMNS,
             vision_client=client,
             settle_seconds=settle_seconds,
         )
-        matches = matching.exact_text_matches(rows, company_name, read=lambda row: row["Company Name"])
+        matches = matching.exact_text_matches(rows, company_name, read=lambda row: row[screens.DEBTORS_SEARCH_COLUMNS[0]])
         return [ResolvedEntity(identity=company_name, created=False, element=row) for row in matches]
 
     def create() -> ResolvedEntity:
@@ -66,7 +64,7 @@ def _open_debtors_list(main_window: Any) -> None:
     clicked via click_input() on its discovered bounding rect.
     """
     controls.focus(main_window)
-    controls.find_control(main_window, "Text", name="Debtors").click_input()
+    controls.find_control(main_window, "Text", name=screens.DEBTORS_NAV_NAME).click_input()
 
 
 def _create_debtor(
@@ -92,12 +90,12 @@ def _create_debtor(
     the ZIP/City lookup starts rather than retrying a stale reference.
     """
     controls.focus(main_window)
-    controls.find_control(main_window, "Button", name=config.DEBTOR_NEW_BUTTON_TITLE).click_input()
+    controls.find_control(main_window, "Button", name=screens.DEBTOR_NEW_BUTTON_TITLE).click_input()
 
     # type_text (real keystrokes), not set_text: set_text() silently fails
     # to persist this field through Save (see controls.type_text) - every
     # other field below keeps using set_text(), which works fine for them.
-    company_edit = controls.find_control(main_window, "Edit", name="Company")
+    company_edit = controls.find_control(main_window, "Edit", name=screens.DEBTOR_COMPANY_EDIT_NAME)
     controls.type_text(company_edit, order.debtor_company_name)
 
     if order.contact_name:
@@ -105,27 +103,25 @@ def _create_debtor(
         # Both Edits are blank-named, so located structurally: the label's
         # own next sibling is the Pane wrapping this row's two Edits,
         # left-to-right (First, then Last).
-        name_label = controls.find_control(main_window, "Text", name="First Name Last Name")
-        siblings = name_label.parent().children()
-        name_pane = siblings[siblings.index(name_label) + 1]
+        name_pane = locators.sibling_pane_after_label(main_window, screens.DEBTOR_NAME_ROW_LABEL_NAME)
         first_name_edit, last_name_edit = name_pane.descendants(control_type="Edit")
         first_name_edit.set_text(first_name)
         last_name_edit.set_text(last_name)
 
     if order.alias:
-        controls.find_control(main_window, "Edit", name="additional name").set_text(order.alias)
+        controls.find_control(main_window, "Edit", name=screens.DEBTOR_ALIAS_EDIT_NAME).set_text(order.alias)
 
     address = order.billing_address
     if address.street:
-        controls.find_control(main_window, "Edit", name="Street").set_text(address.street)
+        controls.find_control(main_window, "Edit", name=screens.DEBTOR_STREET_EDIT_NAME).set_text(address.street)
         time.sleep(settle_seconds)
     if address.postal_code or address.city:
         # Both Edits are blank-named siblings under the "ZIP - City"
         # label's own sibling Pane, left-to-right (ZIP, then City) - same
         # pattern as the First/Last Name fields above.
-        zip_city_label = controls.find_control(main_window, "Text", name="ZIP - City")
-        siblings = zip_city_label.parent().children()
-        zip_city_pane = siblings[siblings.index(zip_city_label) + 1]
+        zip_city_pane = locators.sibling_pane_after_label(
+            main_window, screens.DEBTOR_ZIP_CITY_ROW_LABEL_NAME
+        )
         zip_edit, city_edit = zip_city_pane.descendants(control_type="Edit")
         if address.postal_code:
             controls.set_text(zip_edit, address.postal_code)
@@ -137,9 +133,9 @@ def _create_debtor(
         # guessed option string - so a mismatch (e.g. the combo shows full
         # country names while normalized data holds a code) fails closed
         # to manual review instead of raising a raw pywinauto error.
-        country_combo = controls.find_control(main_window, "ComboBox", name="Country")
+        country_combo = controls.find_control(main_window, "ComboBox", name=screens.DEBTOR_COUNTRY_COMBO_NAME)
         combos.select_exact_option(main_window, country_combo, address.country, client=client, step="resolve_debtor")
 
     controls.focus(main_window)
-    controls.find_control(main_window, "Button", name=config.SAVE_BUTTON_TITLE).click_input()
+    controls.find_control(main_window, "Button", name=screens.SAVE_BUTTON_TITLE).click_input()
     return company_edit

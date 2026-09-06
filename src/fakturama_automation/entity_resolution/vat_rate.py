@@ -18,13 +18,12 @@ from typing import Any
 
 from fakturama_automation.entity_resolution import config, matching, resolver
 from fakturama_automation.entity_resolution.models import ResolvedEntity
-from fakturama_automation.ui_automation import controls
+from fakturama_automation.ui_automation import controls, screens
 
 # read_grid_rows column labels for the vision pass - the results grid's
 # rows are UIA-invisible (like every other entity's), so these aren't
 # independently confirmed from the probe; they mirror the create form's
 # own "Name"/"Value" field labels (entity_resolution/config.py).
-_SEARCH_COLUMNS = ["Name", "Value"]
 
 
 def resolve_vat_rate(
@@ -47,13 +46,13 @@ def resolve_vat_rate(
         _open_vats_list(main_window)
         rows = resolver.search_grid_exact(
             main_window,
-            grid_pane_name="VATs",
+            grid_pane_name=screens.VATS_GRID_PANE_NAME,
             key=str(vat_percent),
-            columns=_SEARCH_COLUMNS,
+            columns=screens.VATS_SEARCH_COLUMNS,
             vision_client=client,
             settle_seconds=settle_seconds,
         )
-        matches = matching.exact_vat_matches(rows, vat_percent, read=lambda row: row["Value"])
+        matches = matching.exact_vat_matches(rows, vat_percent, read=lambda row: row[screens.VATS_SEARCH_COLUMNS[1]])
         return [ResolvedEntity(identity=f"{vat_percent}%", created=False, element=row) for row in matches]
 
     def create() -> ResolvedEntity:
@@ -70,7 +69,7 @@ def _open_vats_list(main_window: Any) -> None:
     click_input() pattern as debtor._open_debtors_list).
     """
     controls.focus(main_window)
-    controls.find_control(main_window, "Text", name="VATs").click_input()
+    controls.find_control(main_window, "Text", name=screens.VATS_NAV_NAME).click_input()
 
 
 def _create_vat_rate(main_window: Any, vat_percent: Decimal) -> Any:
@@ -89,14 +88,14 @@ def _create_vat_rate(main_window: Any, vat_percent: Decimal) -> Any:
     of what was typed. Every other field in this module starts out blank.
     """
     controls.focus(main_window)
-    controls.find_control(main_window, "Button", name=config.VAT_NEW_BUTTON_TITLE).click_input()
+    controls.find_control(main_window, "Button", name=screens.VAT_NEW_BUTTON_TITLE).click_input()
 
-    name_edit = controls.find_control(main_window, "Edit", name="Name")
+    name_edit = controls.find_control(main_window, "Edit", name=screens.VAT_NAME_EDIT_NAME)
     name_edit.set_text(f"{vat_percent}%")
 
-    value_edit = controls.find_control(main_window, "Edit", name="Value")
+    value_edit = controls.find_control(main_window, "Edit", name=screens.VAT_VALUE_EDIT_NAME)
     controls.replace_text(value_edit, str(vat_percent))
 
     controls.focus(main_window)
-    controls.find_control(main_window, "Button", name=config.SAVE_BUTTON_TITLE).click_input()
+    controls.find_control(main_window, "Button", name=screens.SAVE_BUTTON_TITLE).click_input()
     return name_edit

@@ -1,26 +1,17 @@
 """Vision-based reading of custom-rendered (non-UIA) grid controls.
 
-Doc/Design.md's control discovery section sanctions this: visual
-inspection may disambiguate a control when UIA metadata is insufficient.
-Fakturama's list/search result grids (Debtors, Products, VATs, terms of
-payment) have no child controls at all - no DataItem/ListItem rows, no
-readable cell text - so reading them needs a screenshot + vision read
-instead of controls.find_all_controls.
+Fakturama's list/search grids and its ComboBox dropdown popups have no
+child controls at all - no rows, no readable cell text - so reading them
+needs a screenshot and a vision pass instead of find_all_controls. The
+dropdown popup isn't even a descendant of the main window, so there is no
+element to `.select()` an option on either; read_combo_options locates each
+option so the caller can click its coordinate (Doc/adr/0003, 0006).
 
-Split in two, matching ui_automation's existing seam (Doc/adr/0002):
-- capture_control_image: touches a live pywinauto control, Windows/VM-only.
-- read_grid_rows/read_combo_options: pure w.r.t.
-  their injectable `client` param (same pattern as
-  extraction.vision_extractor.extract_from_image) - fully unit-testable.
+Split along ui_automation's existing seam (Doc/adr/0002):
+capture_control_image touches a live control and is Windows-only; the three
+reads are pure with respect to their injectable `client`.
 
-read_combo_options (Doc/adr/0006): Fakturama's ComboBox dropdown popups are
-just as UIA-opaque as the list grids, and the popup isn't even a
-descendant of the main window - no UIA element to `.select()` an option
-on. entity_resolution.combos works around this by screenshotting the main
-window right after opening the combo (a screen-rect grab captures the
-dropdown overlay too) and asking read_combo_options to both name and
-locate (`ComboOption.bbox`) each option, so the caller clicks the matched
-option's screen coordinate directly.
+Failures raise GridReadError, never ManualReviewRequired - see exceptions.py.
 """
 
 from __future__ import annotations
@@ -28,12 +19,12 @@ from __future__ import annotations
 import base64
 import io
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import anthropic
 
-from fakturama_automation.error_handling.exceptions import ManualReviewRequired
 from fakturama_automation.ui_automation import config
+from fakturama_automation.ui_automation.exceptions import GridReadError
 
 _ROWS_TOOL_NAME = "record_grid_rows"
 _LOCATED_ROWS_TOOL_NAME = "record_grid_rows_located"
@@ -48,6 +39,22 @@ background). For each row, give the exact text shown in each column, \
 copied verbatim - do not reformat, translate, or infer a value that is not \
 visibly present. If the grid is empty (no data rows), call the tool with \
 an empty rows list.
+
+Call the {tool_name} tool exactly once with the complete result.
+"""
+
+_LOCATED_GRID_PROMPT_TEMPLATE = """\
+This image is a screenshot of a results grid/table from the Fakturama \
+desktop application. The grid has these columns, in order: {columns}.
+
+Extract every visible data row (skip the header row and any empty grid \
+background). For each row, give the exact text shown in each column, \
+copied verbatim - do not reformat, translate, or infer a value that is not \
+visibly present - and its bounding box in pixel coordinates within this \
+image (top-left origin): x, y, width, height, tightly enclosing the row's \
+full clickable extent (from the left edge of the grid to the right edge of \
+its visible content). If the grid is empty (no data rows), call the tool \
+with an empty rows list.
 
 Call the {tool_name} tool exactly once with the complete result.
 """
@@ -70,33 +77,13 @@ list.
 Call the {tool_name} tool exactly once with the complete result.
 """
 
-_LOCATED_GRID_PROMPT_TEMPLATE = """\
-This image is a screenshot of a results grid/table from the Fakturama \
-desktop application. The grid has these columns, in order: {columns}.
-
-Extract every visible data row (skip the header row and any empty grid \
-background). For each row, give the exact text shown in each column, \
-copied verbatim - do not reformat, translate, or infer a value that is not \
-visibly present - and its bounding box in pixel coordinates within this \
-image (top-left origin): x, y, width, height, tightly enclosing the row's \
-full clickable extent (from the left edge of the grid to the right edge of \
-its visible content). If the grid is empty (no data rows), call the tool \
-with an empty rows list.
-
-Call the {tool_name} tool exactly once with the complete result.
-"""
-
 
 @dataclass(frozen=True)
 class GridRow:
-    """One data row read back from a custom-rendered grid, located.
+    """One located data row, for a caller that must click a matched
+    row rather than just count matches.
 
-    Mirrors ComboOption's text+bbox shape, for a caller that needs to click
-    a specific matched row (e.g. orchestrator.actions' "Select the
-    address" picker) rather than just count matches (read_grid_rows).
-
-    `bbox` is (x, y, width, height) in pixel coordinates within the
-    screenshot passed to read_grid_rows_located - not screen coordinates.
+    `bbox` is (x, y, width, height) within the screenshot, not on screen.
     """
 
     cells: dict[str, str]
@@ -105,13 +92,10 @@ class GridRow:
 
 @dataclass(frozen=True)
 class ComboOption:
-    """One option row read back from an opened combo/dropdown.
+    """One option row from an opened dropdown.
 
-    `bbox` is (x, y, width, height) in pixel coordinates within the
-    screenshot passed to read_combo_options - not screen coordinates.
-    entity_resolution.combos converts it to an absolute screen point
-    before clicking (see its docstring for why: the popup itself isn't
-    reachable as a UIA control to click_input() on directly).
+    `bbox` is (x, y, width, height) within the screenshot, not on screen;
+    entity_resolution.combos converts it before clicking.
     """
 
     text: str
@@ -119,12 +103,9 @@ class ComboOption:
 
 
 def capture_control_image(control: Any) -> bytes:
-    """Screenshot a live pywinauto control (typically a results grid pane)
-    and return it as PNG bytes.
+    """Screenshot a live pywinauto control and return it as PNG bytes.
 
-    `control` is whatever pywinauto object the caller already holds - only
-    its documented `.capture_as_image()` method is used. Windows/VM-only,
-    no unit test (needs a real, on-screen control to capture).
+    Windows/VM-only - needs a real, on-screen control.
     """
     image = control.capture_as_image()
     buffer = io.BytesIO()
@@ -132,34 +113,31 @@ def capture_control_image(control: Any) -> bytes:
     return buffer.getvalue()
 
 
-def read_grid_rows(
+def _read_via_vision_tool(
     image_bytes: bytes,
     *,
-    columns: list[str],
-    client: Any | None = None,
-    step: str = "ui_automation.read_grid_rows",
-) -> list[dict[str, str]]:
-    """Read the visible rows of a custom-rendered grid from a screenshot.
+    tool_name: str,
+    tool_description: str,
+    input_schema: dict,
+    prompt: str,
+    client: Any | None,
+    what: str,
+) -> dict[str, Any]:
+    """Send one screenshot with one forced tool call, returning the
+    tool's input dict.
 
-    Returns a list of {column_name: cell_text} dicts, one per visible data
-    row, in on-screen order. `client` is injectable, defaulting to a real
-    `anthropic.Anthropic()`.
-
-    A failed call, a refusal, or a malformed response all raise
-    ManualReviewRequired rather than an empty/partial list: this feeds
-    entity_resolution's exact-match counting, and an empty result must mean
-    "the grid is actually empty", never "the read failed".
+    Every way this can go wrong raises GridReadError, so a caller never has
+    to distinguish "the grid is empty" from "the read did not happen".
     """
     if client is None:
         client = anthropic.Anthropic()
 
     tool = {
-        "name": _ROWS_TOOL_NAME,
-        "description": "Record every visible data row of the screenshotted grid, exactly once.",
-        "input_schema": _rows_schema(columns),
+        "name": tool_name,
+        "description": tool_description,
+        "input_schema": input_schema,
         "strict": True,
     }
-    prompt = _GRID_PROMPT_TEMPLATE.format(columns=", ".join(columns), tool_name=_ROWS_TOOL_NAME)
     image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
 
     try:
@@ -167,7 +145,7 @@ def read_grid_rows(
             model=config.VISION_GROUNDING_MODEL_ID,
             max_tokens=config.VISION_GROUNDING_MAX_TOKENS,
             tools=[tool],
-            tool_choice={"type": "tool", "name": _ROWS_TOOL_NAME},
+            tool_choice={"type": "tool", "name": tool_name},
             messages=[
                 {
                     "role": "user",
@@ -182,24 +160,56 @@ def read_grid_rows(
             ],
         )
     except Exception as exc:  # anthropic.APIError and friends, or a fake client's own errors
-        raise ManualReviewRequired(step=step, reason=f"vision grid read failed: {exc}") from exc
+        raise GridReadError(f"{what} failed: {exc}") from exc
 
     if getattr(response, "stop_reason", None) == "refusal":
-        raise ManualReviewRequired(step=step, reason="vision grid read refused the request")
+        raise GridReadError(f"{what} refused the request")
 
     tool_use_blocks = [b for b in response.content if getattr(b, "type", None) == "tool_use"]
     if not tool_use_blocks:
-        raise ManualReviewRequired(step=step, reason=f"vision grid read did not return a {_ROWS_TOOL_NAME} tool call")
+        raise GridReadError(f"{what} did not return a {tool_name} tool call")
 
     block = tool_use_blocks[0]
-    if block.name != _ROWS_TOOL_NAME:
-        raise ManualReviewRequired(step=step, reason=f"unexpected tool call '{block.name}'")
+    if block.name != tool_name:
+        raise GridReadError(f"{what} returned an unexpected tool call '{block.name}'")
+    return block.input
 
+
+def _parsed(what: str, parse: Callable[[], Any]) -> Any:
+    """Convert any shape problem in a tool result into GridReadError."""
     try:
-        rows = block.input["rows"]
-        return [{column: str(row.get(column, "")) for column in columns} for row in rows]
-    except (KeyError, TypeError, AttributeError) as exc:
-        raise ManualReviewRequired(step=step, reason=f"malformed grid read result: {exc}") from exc
+        return parse()
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise GridReadError(f"malformed {what} result: {exc}") from exc
+
+
+def read_grid_rows(
+    image_bytes: bytes,
+    *,
+    columns: list[str],
+    client: Any | None = None,
+) -> list[dict[str, str]]:
+    """Read a grid's visible rows as {column: cell_text} dicts, in
+    on-screen order.
+
+    Never returns an empty or partial list on failure: this feeds
+    entity_resolution's exact-match counting, where an empty result must
+    mean "the grid is actually empty", never "the read failed".
+    """
+    what = "vision grid read"
+    result = _read_via_vision_tool(
+        image_bytes,
+        tool_name=_ROWS_TOOL_NAME,
+        tool_description="Record every visible data row of the screenshotted grid, exactly once.",
+        input_schema=_rows_schema(columns),
+        prompt=_GRID_PROMPT_TEMPLATE.format(columns=", ".join(columns), tool_name=_ROWS_TOOL_NAME),
+        client=client,
+        what=what,
+    )
+    return _parsed(
+        what,
+        lambda: [{column: str(row.get(column, "")) for column in columns} for row in result["rows"]],
+    )
 
 
 def read_grid_rows_located(
@@ -207,71 +217,79 @@ def read_grid_rows_located(
     *,
     columns: list[str],
     client: Any | None = None,
-    step: str = "ui_automation.read_grid_rows_located",
 ) -> list[GridRow]:
-    """Like read_grid_rows, but each row is located with a bounding box -
-    for a caller that needs to click a specific matched row (e.g.
-    orchestrator.actions' "Select the address" picker), not just count
-    matches. Same fail-closed failure handling as read_grid_rows.
+    """read_grid_rows, but with a bounding box per row - for a caller
+    that must click the matched row, not just count matches.
     """
-    if client is None:
-        client = anthropic.Anthropic()
-
-    tool = {
-        "name": _LOCATED_ROWS_TOOL_NAME,
-        "description": "Record every visible data row of the screenshotted grid, located, exactly once.",
-        "input_schema": _located_rows_schema(columns),
-        "strict": True,
-    }
-    prompt = _LOCATED_GRID_PROMPT_TEMPLATE.format(columns=", ".join(columns), tool_name=_LOCATED_ROWS_TOOL_NAME)
-    image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
-
-    try:
-        response = client.messages.create(
-            model=config.VISION_GROUNDING_MODEL_ID,
-            max_tokens=config.VISION_GROUNDING_MAX_TOKENS,
-            tools=[tool],
-            tool_choice={"type": "tool", "name": _LOCATED_ROWS_TOOL_NAME},
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {"type": "base64", "media_type": "image/png", "data": image_b64},
-                        },
-                        {"type": "text", "text": prompt},
-                    ],
-                }
-            ],
-        )
-    except Exception as exc:  # anthropic.APIError and friends, or a fake client's own errors
-        raise ManualReviewRequired(step=step, reason=f"vision grid read failed: {exc}") from exc
-
-    if getattr(response, "stop_reason", None) == "refusal":
-        raise ManualReviewRequired(step=step, reason="vision grid read refused the request")
-
-    tool_use_blocks = [b for b in response.content if getattr(b, "type", None) == "tool_use"]
-    if not tool_use_blocks:
-        raise ManualReviewRequired(
-            step=step, reason=f"vision grid read did not return a {_LOCATED_ROWS_TOOL_NAME} tool call"
-        )
-
-    block = tool_use_blocks[0]
-    if block.name != _LOCATED_ROWS_TOOL_NAME:
-        raise ManualReviewRequired(step=step, reason=f"unexpected tool call '{block.name}'")
-
-    try:
-        rows = block.input["rows"]
-        return [
+    what = "vision grid read"
+    result = _read_via_vision_tool(
+        image_bytes,
+        tool_name=_LOCATED_ROWS_TOOL_NAME,
+        tool_description="Record every visible data row of the screenshotted grid, located, exactly once.",
+        input_schema=_located_rows_schema(columns),
+        prompt=_LOCATED_GRID_PROMPT_TEMPLATE.format(
+            columns=", ".join(columns), tool_name=_LOCATED_ROWS_TOOL_NAME
+        ),
+        client=client,
+        what=what,
+    )
+    return _parsed(
+        what,
+        lambda: [
             GridRow(
                 cells={column: str(row.get(column, "")) for column in columns},
                 bbox=(int(row["x"]), int(row["y"]), int(row["width"]), int(row["height"])),
             )
-            for row in rows
-        ]
-    except (KeyError, TypeError, ValueError) as exc:
-        raise ManualReviewRequired(step=step, reason=f"malformed grid read result: {exc}") from exc
+            for row in result["rows"]
+        ],
+    )
+
+
+def read_combo_options(
+    image_bytes: bytes,
+    *,
+    client: Any | None = None,
+) -> list[ComboOption]:
+    """Read an opened dropdown's option rows, each with its bounding box.
+
+    The bbox is needed here because there is no UIA element to .select() an
+    option on - the caller clicks the matched option's coordinate instead.
+    """
+    what = "vision combo read"
+    result = _read_via_vision_tool(
+        image_bytes,
+        tool_name=_COMBO_OPTIONS_TOOL_NAME,
+        tool_description="Record every visible option row of the opened dropdown/combo box, exactly once.",
+        input_schema=_combo_options_schema(),
+        prompt=_COMBO_PROMPT_TEMPLATE.format(tool_name=_COMBO_OPTIONS_TOOL_NAME),
+        client=client,
+        what=what,
+    )
+    return _parsed(
+        what,
+        lambda: [
+            ComboOption(
+                text=str(option["text"]),
+                bbox=(int(option["x"]), int(option["y"]), int(option["width"]), int(option["height"])),
+            )
+            for option in result["options"]
+        ],
+    )
+
+
+def _rows_schema(columns: list[str]) -> dict:
+    row_schema = {
+        "type": "object",
+        "properties": {column: {"type": "string"} for column in columns},
+        "required": list(columns),
+        "additionalProperties": False,
+    }
+    return {
+        "type": "object",
+        "properties": {"rows": {"type": "array", "items": row_schema}},
+        "required": ["rows"],
+        "additionalProperties": False,
+    }
 
 
 def _located_rows_schema(columns: list[str]) -> dict:
@@ -293,95 +311,6 @@ def _located_rows_schema(columns: list[str]) -> dict:
         "required": ["rows"],
         "additionalProperties": False,
     }
-
-
-def _rows_schema(columns: list[str]) -> dict:
-    row_schema = {
-        "type": "object",
-        "properties": {column: {"type": "string"} for column in columns},
-        "required": list(columns),
-        "additionalProperties": False,
-    }
-    return {
-        "type": "object",
-        "properties": {"rows": {"type": "array", "items": row_schema}},
-        "required": ["rows"],
-        "additionalProperties": False,
-    }
-
-
-def read_combo_options(
-    image_bytes: bytes,
-    *,
-    client: Any | None = None,
-    step: str = "ui_automation.read_combo_options",
-) -> list[ComboOption]:
-    """Read the visible option rows of an opened combo/dropdown from a
-    screenshot, each with its bounding box within that screenshot.
-
-    Mirrors read_grid_rows' injectable-client shape and fail-closed
-    handling. The bbox is needed here (unlike read_grid_rows) because
-    there's no UIA element to .select() an option on - the caller clicks
-    the matched option's screen coordinate instead.
-    """
-    if client is None:
-        client = anthropic.Anthropic()
-
-    tool = {
-        "name": _COMBO_OPTIONS_TOOL_NAME,
-        "description": "Record every visible option row of the opened dropdown/combo box, exactly once.",
-        "input_schema": _combo_options_schema(),
-        "strict": True,
-    }
-    prompt = _COMBO_PROMPT_TEMPLATE.format(tool_name=_COMBO_OPTIONS_TOOL_NAME)
-    image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
-
-    try:
-        response = client.messages.create(
-            model=config.VISION_GROUNDING_MODEL_ID,
-            max_tokens=config.VISION_GROUNDING_MAX_TOKENS,
-            tools=[tool],
-            tool_choice={"type": "tool", "name": _COMBO_OPTIONS_TOOL_NAME},
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {"type": "base64", "media_type": "image/png", "data": image_b64},
-                        },
-                        {"type": "text", "text": prompt},
-                    ],
-                }
-            ],
-        )
-    except Exception as exc:  # anthropic.APIError and friends, or a fake client's own errors
-        raise ManualReviewRequired(step=step, reason=f"vision combo read failed: {exc}") from exc
-
-    if getattr(response, "stop_reason", None) == "refusal":
-        raise ManualReviewRequired(step=step, reason="vision combo read refused the request")
-
-    tool_use_blocks = [b for b in response.content if getattr(b, "type", None) == "tool_use"]
-    if not tool_use_blocks:
-        raise ManualReviewRequired(
-            step=step, reason=f"vision combo read did not return a {_COMBO_OPTIONS_TOOL_NAME} tool call"
-        )
-
-    block = tool_use_blocks[0]
-    if block.name != _COMBO_OPTIONS_TOOL_NAME:
-        raise ManualReviewRequired(step=step, reason=f"unexpected tool call '{block.name}'")
-
-    try:
-        options = block.input["options"]
-        return [
-            ComboOption(
-                text=str(option["text"]),
-                bbox=(int(option["x"]), int(option["y"]), int(option["width"]), int(option["height"])),
-            )
-            for option in options
-        ]
-    except (KeyError, TypeError, ValueError) as exc:
-        raise ManualReviewRequired(step=step, reason=f"malformed combo read result: {exc}") from exc
 
 
 def _combo_options_schema() -> dict:

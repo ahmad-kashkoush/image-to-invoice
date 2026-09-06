@@ -125,7 +125,6 @@ def _golden_line_items() -> list[NormalizedLineItem]:
         vat_percent=Decimal("19"),
         discount=Decimal("10"),
         source_line_total=Decimal("450.00"),
-        recomputed_total=Decimal("450.00"),
     )
     line2 = NormalizedLineItem(
         sku="MAT-DESK-02",
@@ -135,7 +134,6 @@ def _golden_line_items() -> list[NormalizedLineItem]:
         vat_percent=Decimal("19"),
         discount=Decimal("0"),
         source_line_total=Decimal("120.00"),
-        recomputed_total=Decimal("120.00"),
     )
     return [line1, line2]
 

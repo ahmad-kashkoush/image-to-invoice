@@ -19,7 +19,19 @@ Accepted. Decision 3 and parts of Consequences overtaken — see Amendment
 >   run has read those fields back (`Doc/implementation-notes.md`).
 > - `verify_invoice_saved` was added later as its own state; see `0008`.
 > - Still open, unchanged: verification reads the open editor rather than
->   `Data > Documents` (Task 4.5/5.5) — `TODo.md`'s Open list, item 1.
+>   `Data > Documents` (Task 4.5/5.5) — `TODo.md`'s Open list, item 2.
+
+> **Amendment (2026-09-06, later the same day).** Decisions 2 and 3 described
+> *where* the Order/Invoice selectors live as well as how they are chosen.
+> The choice still holds — accessible name over `auto_id`, for the evidence
+> given — but the location has moved: every selector now lives in
+> `ui_automation/screens.py`, one home per screen, shared with the write path
+> that sets the very fields this section reads back. `verification/config.py`
+> holds only timeouts. See `0009`.
+>
+> Decision 5 (`order_level_totals` derived once, shared) is unchanged, and
+> `verify_order_before_save` now reuses the same `_field_problems` helper for
+> the pre-save check Task 4.3 asks for.
 
 ## Context
 

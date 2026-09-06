@@ -1,19 +1,18 @@
-"""Small shared UI read-back helpers used by every verification module.
+"""Reading a control's current contents back out of the live UI.
 
-Keeps order_verification.py/invoice_verification.py/payment_verification.py
-from each re-deriving "how do I read a field's current text back".
+Keeps the three verification modules from each re-deriving "how do I read a
+field's current value". *Where* a control is belongs to
+`ui_automation.locators`, since the write path needs the same answers.
 
-No pywinauto import here: `window` is whatever duck-typed pywinauto object
-the caller already holds, and only its documented methods (`window_text()`,
-`get_value()`, `get_toggle_state()`) are called on it - keeps this module
-importable on macOS/Linux.
+No pywinauto import: only the documented `window_text()`, `get_value()`,
+`get_toggle_state()` are called on whatever the caller passes in.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from fakturama_automation.ui_automation import controls, vision_grounding
+from fakturama_automation.ui_automation import controls, locators, vision_grounding
 from fakturama_automation.ui_automation.exceptions import ControlNotFoundError
 from fakturama_automation.verification import config
 
@@ -27,25 +26,18 @@ def window_title(window: Any) -> str:
 
 
 def field_value(control: Any) -> str:
-    """Read a field control's current *value* - what the user sees typed in
-    it - not its accessible name.
+    """Read a field's current *value* - what the user sees typed in it -
+    not its accessible name.
 
-    `window_text()` is the wrong call for this and silently returns
-    something plausible instead of failing: pywinauto's uia EditWrapper
-    does not override it, so it resolves to UIAElementInfo.rich_text, which
-    asks for the TextPattern and falls back to the element's Name when
-    that's unavailable. Fakturama's SWT edits have no TextPattern, so every
-    such read came back as the field's own label - `window_text()` on the
-    Cust.Ref. edit returns "Cust.Ref.", never the order reference in it
-    (confirmed live, and visible in probes/probe-02-fill-create-order.txt,
-    which dumps `Edit - 'Cust.Ref.'` for an editor that had just been
-    filled in). Every field comparison built on it therefore compared a
-    label against a value and could never pass.
+    Never `window_text()`: pywinauto's uia EditWrapper resolves it to
+    rich_text, which falls back to the element's Name when there is no
+    TextPattern. Fakturama's SWT edits have none, so `window_text()` on the
+    Cust.Ref. edit returns "Cust.Ref." rather than the reference in it, and
+    every comparison built on it compared a label against a value and could
+    never pass.
 
-    The ValuePattern is what carries the typed text (`get_value()`, with
-    legacy_properties()["Value"] as the fallback for a control pywinauto
-    doesn't wrap as an Edit - confirmed live that both return the real
-    value). A control exposing neither raises rather than degrading to the
+    The ValuePattern carries the typed text, with legacy Value as a
+    fallback. A control exposing neither raises rather than degrading to the
     name again: an unreadable field must stop the run, not quietly compare
     equal to nothing.
     """
@@ -81,8 +73,7 @@ def read_field_text(
 ) -> str:
     """Locate one field under window and read its current value.
 
-    A placeholder selector (name/auto_id == "", for a control not yet
-    pinned by a VM probe - see verification/config.py) fails closed here:
+    A selector that does not match a real control fails closed here:
     controls.find_control raises ControlNotFoundError or
     AmbiguousControlError rather than this function returning a
     plausible-looking empty string.
@@ -107,43 +98,18 @@ def read_toggle_state(
     return control.get_toggle_state() == 1
 
 
-def items_grid_pane(window: Any, *, label_name: str = "Items", items_label: Any = None) -> Any:
-    """Locate the Items section's own custom-rendered grid Pane, in the
-    Order or Invoice editor alike.
-
-    Blank-named with a session-unstable auto_id - the "Items" Text label
-    and its toolbar are a Pane, and the grid canvas is that Pane's own next
-    sibling under their shared parent. Same structure in both editors, so
-    this one helper serves both.
-
-    `items_label` lets a caller that already holds this Text control
-    (orchestrator.actions.add_order_line) skip re-finding it here.
-    """
-    items_label = items_label or controls.find_control(window, "Text", name=label_name)
-    toolbar_pane = items_label.parent()
-    siblings = toolbar_pane.parent().children()
-    return siblings[siblings.index(toolbar_pane) + 1]
-
-
 def read_grid(
     window: Any,
     *,
     columns: list[str],
     client: Any = None,
-    step: str = "verification.read_grid",
 ) -> list[dict[str, str]]:
-    """Screenshot the Items grid under window and read its rows via
-    ui_automation.vision_grounding - the same fallback
-    entity_resolution.resolver.search_grid_exact uses for Fakturama's
-    list/search results grids, reused here for the Order/Invoice editor's
-    own item-row grid (also UIA-invisible - see Doc/adr/0003's
-    Consequences section, which names this exact reuse).
+    """Screenshot the Items grid under window and read its rows.
 
-    Activates this editor's own tab and confirms its window is actually in
-    front first. The capture is a screen-region grab, so an occluded or
-    background tab is read as whatever is drawn over it - which surfaces as
-    a plausible-looking wrong grid (an empty one, typically: "expected 2
-    order lines, UI grid shows 0"), never as an error.
+    Activates this editor's tab and confirms its window is actually in front
+    first: the capture is a screen-region grab, so an occluded or background
+    tab reads as whatever is drawn over it - a plausible-looking wrong grid
+    (typically an empty one), never an error.
     """
     window.set_focus()
     top_level = window.top_level_parent()
@@ -152,42 +118,6 @@ def read_grid(
     # by the last click is drawn over the window, so it lands in the
     # screenshot and hides whatever it covers.
     controls.move_pointer_away(top_level)
-    grid_pane = items_grid_pane(window)
+    grid_pane = locators.items_grid_pane(window)
     image_bytes = vision_grounding.capture_control_image(grid_pane)
-    return vision_grounding.read_grid_rows(image_bytes, columns=columns, client=client, step=step)
-
-
-def payment_details_pane(window: Any, *, paid_checkbox_name: str = "paid") -> Any:
-    """Locate the Invoice's payment-details Pane: the "paid" checkbox's
-    own next sibling, which holds the payment-method combo and (once
-    "paid" is checked) the payment-date/Value row.
-
-    Checking "paid" replaces this Pane's second child in place (Due Days/
-    Pay Until controls when unchecked, an "at" date field + "Value" edit
-    once checked) - callers needing the date/Value fields must check
-    "paid" first, the same order apply_payment uses.
-    """
-    paid_checkbox = controls.find_control(window, "CheckBox", name=paid_checkbox_name)
-    siblings = paid_checkbox.parent().children()
-    return siblings[siblings.index(paid_checkbox) + 1]
-
-
-def payment_method_combo(window: Any, *, paid_checkbox_name: str = "paid") -> Any:
-    """Locate the Invoice's payment-method ComboBox (blank-named, no
-    stable auto_id) - the payment-details Pane's first child, present
-    regardless of whether "paid" is checked.
-    """
-    return payment_details_pane(window, paid_checkbox_name=paid_checkbox_name).children()[0]
-
-
-def payment_date_edit(window: Any, *, paid_checkbox_name: str = "paid", at_label_name: str = "at") -> Any:
-    """Locate the Invoice's payment-date Edit (blank-named) - only present
-    once "paid" is checked (see payment_details_pane's docstring): the
-    "at" Text label's own next sibling Pane holds it, mirroring the
-    sibling-Pane navigation debtor.py's ZIP/City fields already use.
-    """
-    date_row_pane = payment_details_pane(window, paid_checkbox_name=paid_checkbox_name).children()[1]
-    at_label = controls.find_control(date_row_pane, "Text", name=at_label_name)
-    row_siblings = date_row_pane.children()
-    date_pane = row_siblings[row_siblings.index(at_label) + 1]
-    return date_pane.children()[0]
+    return vision_grounding.read_grid_rows(image_bytes, columns=columns, client=client)

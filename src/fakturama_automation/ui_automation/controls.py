@@ -72,6 +72,60 @@ def find_control(
     return matches[0]
 
 
+def reactivate_editor(
+    main_window: Any,
+    editor: Any,
+    *,
+    probe_type: str,
+    probe_name: str,
+    attempts: int = 3,
+    timeout_seconds: float = 5.0,
+) -> Any:
+    """Re-select the editor tab `editor` and return one of its own
+    controls, proving its content is exposed again.
+
+    Eclipse stops exposing a tab's content to UIA once you navigate away,
+    and this app navigates away constantly. `set_focus()` brings it back but
+    can silently not take, after which the next lookup fails as if the
+    editor were gone. So it is retried until a control that only exists
+    inside this editor is findable. Retrying is safe - selecting a tab
+    changes nothing in the document.
+
+    Uses the held Pane reference, not a fresh find_control by title: that
+    breaks with AmbiguousControlError as soon as two same-titled tabs are
+    open, e.g. a prior run's never-saved draft.
+
+    Returns the probe control because every caller wants it next anyway, and
+    re-finding it would race the activation this just proved.
+    """
+    last_error: ControlNotFoundError | None = None
+    for _attempt in range(attempts):
+        focus(main_window)
+        editor.set_focus()
+        try:
+            return find_control(
+                main_window, probe_type, name=probe_name, timeout_seconds=timeout_seconds
+            )
+        except ControlNotFoundError as exc:
+            last_error = exc
+    assert last_error is not None
+    raise last_error
+
+
+def window_still_exists(window: Any) -> bool:
+    """`window.exists()`, treating a COMError as "gone".
+
+    Confirmed live: re-resolving a destroyed window's element can raise a
+    raw _ctypes.COMError instead of returning False.
+    """
+    from _ctypes import COMError
+
+    try:
+        return window.exists()
+    except COMError:
+        return False
+
+
 def focus(main_window: Any) -> None:
     """Bring main_window to the OS foreground immediately before a
     click_input() call.

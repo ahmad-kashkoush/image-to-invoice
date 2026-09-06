@@ -32,7 +32,6 @@ def _line(**overrides) -> NormalizedLineItem:
     )
     defaults.update(overrides)
     item = NormalizedLineItem(**defaults)
-    item.recomputed_total = recompute_line_total(item)
     return item
 
 
@@ -49,6 +48,22 @@ def test_recompute_line_total_applies_percentage_discount_and_excludes_vat() -> 
     # Task rule 3.16: qty x unit_net x (1 - discount / 100); VAT is not part
     # of the net line total. From the sample order: 2 x 250.00 x 0.90 = 450.00.
     item = _line()
+    # Both the named function and the model property, which must agree:
+    # the function delegates to the property, so this pins that they do.
+    assert recompute_line_total(item) == Decimal("450.00")
+    assert item.recomputed_total == Decimal("450.00")
+
+
+def test_recomputed_total_is_computed_not_assigned() -> None:
+    # A line item built without going through the normalizer still has a
+    # correct net total - every order-level total in the system derives
+    # from it, so a default of 0 would silently understate an invoice.
+    item = NormalizedLineItem(
+        sku="CHR-ERG-01",
+        quantity=Decimal("2"),
+        unit_net_price=Decimal("250.00"),
+        discount=Decimal("10"),
+    )
     assert item.recomputed_total == Decimal("450.00")
 
 

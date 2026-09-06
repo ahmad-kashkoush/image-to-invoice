@@ -19,6 +19,23 @@ Amendment (2026-09-06).
 >   (`TODo.md`, `Doc/implementation-notes.md`).
 >   `ORDER_CUSTOMER_FIELD_AUTO_ID` and `ORDER_PAYMENT_METHOD_FIELD_AUTO_ID`
 >   were deleted rather than filled, per Decision 7.
+>
+> **Amendment (2026-09-06, later the same day) — see `0009`.**
+>
+> - **Decision 2 is superseded in form, kept in spirit.** `actions.py` grew
+>   to 815 lines holding three screens plus the picker protocol. It is now
+>   `orchestrator/steps/`, one module per screen
+>   (`order_editor`/`invoice_editor`/`items_grid`/`pickers`/`toolbar`). The
+>   split the Decision drew — state loop as control flow, UI mechanics
+>   factored out — is unchanged; only its granularity is.
+> - **Decision 3 is restored, not changed.** It stated that `ui_automation`
+>   "is not `error_handling`-aware and should not become so"; the
+>   implementation had drifted, with `vision_grounding` and `grid_geometry`
+>   raising `ManualReviewRequired` at 21 sites. They now raise
+>   `GridReadError`/`GridGeometryError` and the loop converts them, exactly
+>   as this Decision always said it should.
+> - **`APP_TITLE_RE` no longer comes from `entity_resolution.config`**; it is
+>   a property of the application, and lives in `ui_automation/screens.py`.
 > - **Decision 6's tests no longer exist.** `tests/orchestrator/` was
 >   emptied when the pywinauto-fake suite was removed; the state machine is
 >   verified live on the VM (`CLAUDE.md`'s test conventions). The

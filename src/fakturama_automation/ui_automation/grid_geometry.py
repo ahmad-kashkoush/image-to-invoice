@@ -29,7 +29,7 @@ from dataclasses import dataclass
 
 from PIL import Image
 
-from fakturama_automation.error_handling.exceptions import ManualReviewRequired
+from fakturama_automation.ui_automation.exceptions import GridGeometryError
 
 # A pixel at or below this (0-255 greyscale) is "not blank background" -
 # grid lines and text both sit well under it, blank cells well over.
@@ -77,7 +77,6 @@ def read_grid_geometry(
     image_bytes: bytes,
     *,
     expected_columns: int,
-    step: str = "ui_automation.read_grid_geometry",
 ) -> GridGeometry:
     """Measure a grid screenshot's column and row geometry.
 
@@ -92,14 +91,12 @@ def read_grid_geometry(
 
     columns = _column_bounds(pixels, width, height)
     if len(columns) < expected_columns:
-        raise ManualReviewRequired(
-            step,
+        raise GridGeometryError(
             f"grid screenshot shows {len(columns)} column(s), expected at least {expected_columns} - "
             "the grid may be horizontally scrolled or clipped",
         )
     if columns[0][0] > _LEFT_EDGE_TOLERANCE:
-        raise ManualReviewRequired(
-            step,
+        raise GridGeometryError(
             f"grid screenshot's first column starts at x={columns[0][0]}, not its left edge - "
             "the grid appears to be horizontally scrolled",
         )
@@ -107,9 +104,9 @@ def read_grid_geometry(
     # the right of its last column, not a column.
     columns = columns[:expected_columns]
 
-    header_bottom = _header_bottom(pixels, width, height, step=step)
-    lines, row_height = _row_lines(pixels, columns, header_bottom, height, step=step)
-    data_top = _snap_to_row_lattice(header_bottom, lines[0], row_height, step=step)
+    header_bottom = _header_bottom(pixels, width, height)
+    lines, row_height = _row_lines(pixels, columns, header_bottom, height)
+    data_top = _snap_to_row_lattice(header_bottom, lines[0], row_height)
     return GridGeometry(columns=columns, data_top=data_top, row_height=row_height)
 
 
@@ -142,7 +139,7 @@ def _row_median(pixels, width: int, y: int) -> int:
     return samples[len(samples) // 2]
 
 
-def _header_bottom(pixels, width: int, height: int, *, step: str) -> int:
+def _header_bottom(pixels, width: int, height: int) -> int:
     """Roughly where the grey header strip ends, to within a pixel or two.
 
     Only an estimate: the exact top of the first data row comes from
@@ -153,13 +150,13 @@ def _header_bottom(pixels, width: int, height: int, *, step: str) -> int:
     for y in range(4, height):
         if abs(_row_median(pixels, width, y) - header_grey) > _HEADER_BREAK:
             return y
-    raise ManualReviewRequired(
-        step, "grid screenshot has no data area below its header strip"
+    raise GridGeometryError(
+        "grid screenshot has no data area below its header strip"
     )
 
 
 def _row_lines(
-    pixels, columns: list[tuple[int, int]], header_bottom: int, height: int, *, step: str
+    pixels, columns: list[tuple[int, int]], header_bottom: int, height: int
 ) -> tuple[list[int], int]:
     """The horizontal row separators below the header, and their pitch.
 
@@ -179,17 +176,17 @@ def _row_lines(
     ]
     pitches = sorted(b - a for a, b in zip(lines, lines[1:]))
     if not pitches:
-        raise ManualReviewRequired(
-            step, "grid screenshot shows no row separators - cannot measure row height"
+        raise GridGeometryError(
+            "grid screenshot shows no row separators - cannot measure row height"
         )
     if pitches[0] != pitches[-1]:
-        raise ManualReviewRequired(
-            step, f"grid rows are not evenly pitched (measured {pitches!r})"
+        raise GridGeometryError(
+            f"grid rows are not evenly pitched (measured {pitches!r})"
         )
     return lines, pitches[0]
 
 
-def _snap_to_row_lattice(header_bottom: int, first_line: int, row_height: int, *, step: str) -> int:
+def _snap_to_row_lattice(header_bottom: int, first_line: int, row_height: int) -> int:
     """The first data row's top: the row-lattice position nearest the
     header's lower edge.
 
@@ -202,8 +199,7 @@ def _snap_to_row_lattice(header_bottom: int, first_line: int, row_height: int, *
     """
     candidates = [y for y in range(first_line, -1, -row_height) if y >= header_bottom - row_height // 2]
     if not candidates:
-        raise ManualReviewRequired(
-            step,
+        raise GridGeometryError(
             f"no row boundary lines up with the header's lower edge ({header_bottom}) "
             f"stepping back from {first_line} at a {row_height}px pitch",
         )

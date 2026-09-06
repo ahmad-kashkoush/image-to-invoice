@@ -11,9 +11,7 @@ from typing import Any
 
 from fakturama_automation.entity_resolution import config, matching, resolver
 from fakturama_automation.entity_resolution.models import ResolvedEntity
-from fakturama_automation.ui_automation import controls
-
-_SEARCH_COLUMNS = ["Name"]
+from fakturama_automation.ui_automation import controls, screens
 
 
 def resolve_payment_method(
@@ -36,13 +34,13 @@ def resolve_payment_method(
         _open_payment_methods_list(main_window)
         rows = resolver.search_grid_exact(
             main_window,
-            grid_pane_name="terms of payment",
+            grid_pane_name=screens.PAYMENT_METHODS_GRID_PANE_NAME,
             key=payment_method,
-            columns=_SEARCH_COLUMNS,
+            columns=screens.PAYMENT_METHODS_SEARCH_COLUMNS,
             vision_client=client,
             settle_seconds=settle_seconds,
         )
-        matches = matching.exact_text_matches(rows, payment_method, read=lambda row: row["Name"])
+        matches = matching.exact_text_matches(rows, payment_method, read=lambda row: row[screens.PAYMENT_METHODS_SEARCH_COLUMNS[0]])
         return [ResolvedEntity(identity=payment_method, created=False, element=row) for row in matches]
 
     def create() -> ResolvedEntity:
@@ -60,7 +58,7 @@ def _open_payment_methods_list(main_window: Any) -> None:
     own nav label is "terms of payment", not "Payment methods".
     """
     controls.focus(main_window)
-    controls.find_control(main_window, "Text", name="terms of payment").click_input()
+    controls.find_control(main_window, "Text", name=screens.PAYMENT_METHODS_NAV_NAME).click_input()
 
 
 def _create_payment_method(main_window: Any, payment_method: str) -> Any:
@@ -70,11 +68,11 @@ def _create_payment_method(main_window: Any, payment_method: str) -> Any:
     Discount Days/Net Days are all optional and left at their defaults.
     """
     controls.focus(main_window)
-    controls.find_control(main_window, "Button", name=config.PAYMENT_NEW_BUTTON_TITLE).click_input()
+    controls.find_control(main_window, "Button", name=screens.PAYMENT_NEW_BUTTON_TITLE).click_input()
 
-    name_edit = controls.find_control(main_window, "Edit", name="Name")
+    name_edit = controls.find_control(main_window, "Edit", name=screens.PAYMENT_NAME_EDIT_NAME)
     name_edit.set_text(payment_method)
 
     controls.focus(main_window)
-    controls.find_control(main_window, "Button", name=config.SAVE_BUTTON_TITLE).click_input()
+    controls.find_control(main_window, "Button", name=screens.SAVE_BUTTON_TITLE).click_input()
     return name_edit

@@ -55,7 +55,7 @@ def select_vat_option(
 
     Raises ManualReviewRequired if no option, or more than one, matches.
     """
-    options = _read_open_combo_options(main_window, combo, client=client, step=step, settle_seconds=settle_seconds)
+    options = _read_open_combo_options(main_window, combo, client=client, settle_seconds=settle_seconds)
     match = pick_option(options, match=lambda text: matching.parse_vat_text(text) == vat_percent)
     if match is None:
         raise ManualReviewRequired(
@@ -85,7 +85,7 @@ def select_exact_option(
     correctly treated as "no match", not silently skipped or guessed.
     """
     options = _read_open_combo_options(
-        main_window, combo, client=client, step=step, type_ahead=target, settle_seconds=settle_seconds
+        main_window, combo, client=client, type_ahead=target, settle_seconds=settle_seconds
     )
     match = pick_option(options, match=lambda text: text == target)
     if match is None:
@@ -102,7 +102,6 @@ def _read_open_combo_options(
     combo: Any,
     *,
     client: Any,
-    step: str,
     type_ahead: str | None = None,
     settle_seconds: float = config.SEARCH_SETTLE_SECONDS,
 ) -> list[ComboOption]:
@@ -131,7 +130,7 @@ def _read_open_combo_options(
         combo.type_keys(type_ahead)
     time.sleep(settle_seconds)
     image_bytes = vision_grounding.capture_control_image(main_window)
-    return vision_grounding.read_combo_options(image_bytes, client=client, step=step)
+    return vision_grounding.read_combo_options(image_bytes, client=client)
 
 
 def _click_option(main_window: Any, option: ComboOption) -> None:

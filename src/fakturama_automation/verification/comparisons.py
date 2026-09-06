@@ -19,6 +19,7 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from fakturama_automation.entity_resolution.matching import parse_vat_text
 from fakturama_automation.normalization.config import MONEY_QUANTIZE
 from fakturama_automation.normalization.models import NormalizedLineItem, NormalizedOrder
+from fakturama_automation.ui_automation import screens
 
 _CURRENCY_SYMBOLS = re.compile(r"[€$£]|\bEUR\b|\bUSD\b|\bGBP\b", re.IGNORECASE)
 
@@ -28,7 +29,7 @@ _CURRENCY_SYMBOLS = re.compile(r"[€$£]|\bEUR\b|\bUSD\b|\bGBP\b", re.IGNORECAS
 #
 # The month-name forms are here because this parses text the UI *renders*,
 # not text a human wrote: the Invoice's payment-date widget is written as
-# ISO (orchestrator.actions.apply_payment) but redisplays the value in the
+# ISO (the orchestrator's apply_payment step) but redisplays the value in the
 # platform's medium date format ("Jul 18, 2026"), so a correctly applied
 # date read straight back was failing to parse. A spelled-out month can't
 # be confused for a day, so these stay unambiguous - a numeric slash date
@@ -157,29 +158,32 @@ def line_row_problems(expected: NormalizedLineItem, row: dict[str, str]) -> list
     problems: list[str] = []
     label = expected.sku or "?"
 
-    # "Item No." matches the grid's own visible header, not "SKU"; must
-    # stay in sync with verification.config.ORDER_ITEMS_GRID_COLUMNS.
-    sku = row.get("Item No.", "")
+    # Keys come from ui_automation.screens, which is also what built the
+    # column list the vision read was given - so a row this function looks
+    # up can only be a row that grid actually has. These are the grid's own
+    # visible headers ("Item No.", not "SKU"), and used to be repeated here
+    # as literals for the reader to keep in sync by hand.
+    sku = row.get(screens.ITEMS_COL_SKU, "")
     if not text_equals(expected.sku, sku):
         problems.append(f"{label}: SKU expected '{expected.sku}', UI shows '{sku}'")
 
-    qty_text = row.get("Qty.", "")
+    qty_text = row.get(screens.ITEMS_COL_QUANTITY, "")
     if not money_equals(expected.quantity, qty_text):
         problems.append(f"{label}: Qty. expected {expected.quantity}, UI shows '{qty_text}'")
 
-    price_text = row.get("U.Price", "")
+    price_text = row.get(screens.ITEMS_COL_UNIT_PRICE, "")
     if not money_equals(expected.unit_net_price, price_text):
         problems.append(f"{label}: U.Price expected {expected.unit_net_price}, UI shows '{price_text}'")
 
-    vat_text = row.get("VAT", "")
+    vat_text = row.get(screens.ITEMS_COL_VAT, "")
     if not percent_equals(expected.vat_percent, vat_text):
         problems.append(f"{label}: VAT expected {expected.vat_percent}, UI shows '{vat_text}'")
 
-    discount_text = row.get("Discount", "")
+    discount_text = row.get(screens.ITEMS_COL_DISCOUNT, "")
     if not percent_equals(expected.discount, discount_text):
         problems.append(f"{label}: Discount expected {expected.discount}, UI shows '{discount_text}'")
 
-    line_total_text = row.get("Price", "")
+    line_total_text = row.get(screens.ITEMS_COL_LINE_TOTAL, "")
     if not money_equals(expected.recomputed_total, line_total_text):
         problems.append(f"{label}: Price expected {expected.recomputed_total}, UI shows '{line_total_text}'")
 

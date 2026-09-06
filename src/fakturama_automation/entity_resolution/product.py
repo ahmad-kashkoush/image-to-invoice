@@ -1,8 +1,8 @@
 """Product resolution: search Fakturama by exact SKU, create a new
 Product only if no exact match exists.
 
-Control identifiers below are pinned from live VM probes - see
-entity_resolution/config.py for the full selector inventory.
+Control identifiers are pinned from live VM probes and live in
+ui_automation/screens.py, the one selector inventory for every screen.
 """
 
 from __future__ import annotations
@@ -14,9 +14,7 @@ from fakturama_automation.entity_resolution.models import ResolvedEntity
 from fakturama_automation.entity_resolution.vat_rate import resolve_vat_rate
 from fakturama_automation.normalization.models import NormalizedLineItem
 from fakturama_automation.normalization.validators import gross_from_net
-from fakturama_automation.ui_automation import controls
-
-_SEARCH_COLUMNS = ["Item Number"]
+from fakturama_automation.ui_automation import controls, locators, screens
 
 
 def resolve_product(
@@ -44,13 +42,13 @@ def resolve_product(
         _open_products_list(main_window)
         rows = resolver.search_grid_exact(
             main_window,
-            grid_pane_name="Products",
+            grid_pane_name=screens.PRODUCTS_GRID_PANE_NAME,
             key=sku,
-            columns=_SEARCH_COLUMNS,
+            columns=screens.PRODUCTS_SEARCH_COLUMNS,
             vision_client=client,
             settle_seconds=settle_seconds,
         )
-        matches = matching.exact_text_matches(rows, sku, read=lambda row: row["Item Number"])
+        matches = matching.exact_text_matches(rows, sku, read=lambda row: row[screens.PRODUCTS_SEARCH_COLUMNS[0]])
         return [ResolvedEntity(identity=sku, created=False, element=row) for row in matches]
 
     def create() -> ResolvedEntity:
@@ -68,7 +66,7 @@ def _open_products_list(main_window: Any) -> None:
     click_input() pattern as debtor._open_debtors_list; see its docstring).
     """
     controls.focus(main_window)
-    controls.find_control(main_window, "Text", name="Products").click_input()
+    controls.find_control(main_window, "Text", name=screens.PRODUCTS_NAV_NAME).click_input()
 
 
 def _create_product(main_window: Any, item: NormalizedLineItem, *, client: Any = None) -> Any:
@@ -100,18 +98,18 @@ def _create_product(main_window: Any, item: NormalizedLineItem, *, client: Any =
     affected, so keystrokes are used uniformly here.
     """
     controls.focus(main_window)
-    controls.find_control(main_window, "Button", name=config.PRODUCT_NEW_BUTTON_TITLE).click_input()
+    controls.find_control(main_window, "Button", name=screens.PRODUCT_NEW_BUTTON_TITLE).click_input()
 
-    sku_edit = controls.find_control(main_window, "Edit", name="Item Number")
+    sku_edit = controls.find_control(main_window, "Edit", name=screens.PRODUCT_SKU_EDIT_NAME)
     controls.type_text(sku_edit, item.sku)
 
     if item.description:
-        controls.type_text(controls.find_control(main_window, "Edit", name="Name"), item.description)
+        controls.type_text(controls.find_control(main_window, "Edit", name=screens.PRODUCT_NAME_EDIT_NAME), item.description)
 
     if item.unit_net_price:
-        price_label = controls.find_control(main_window, "Text", name=config.PRODUCT_PRICE_GROSS_LABEL_NAME)
-        siblings = price_label.parent().children()
-        price_pane = siblings[siblings.index(price_label) + 1]
+        price_pane = locators.sibling_pane_after_label(
+            main_window, screens.PRODUCT_PRICE_GROSS_LABEL_NAME
+        )
         price_edit = price_pane.descendants(control_type="Edit")[0]
         controls.type_text(price_edit, str(gross_from_net(item.unit_net_price, item.vat_percent)))
 
@@ -119,9 +117,9 @@ def _create_product(main_window: Any, item: NormalizedLineItem, *, client: Any =
     # clicking the matching one (combos.select_vat_option) - never a
     # guessed option string - so an unexpected VAT option format fails
     # closed to manual review instead of raising a raw pywinauto error.
-    vat_combo = controls.find_control(main_window, "ComboBox", name="VAT")
+    vat_combo = controls.find_control(main_window, "ComboBox", name=screens.PRODUCT_VAT_COMBO_NAME)
     combos.select_vat_option(main_window, vat_combo, item.vat_percent, client=client, step="resolve_product")
 
     controls.focus(main_window)
-    controls.find_control(main_window, "Button", name=config.SAVE_BUTTON_TITLE).click_input()
+    controls.find_control(main_window, "Button", name=screens.SAVE_BUTTON_TITLE).click_input()
     return sku_edit

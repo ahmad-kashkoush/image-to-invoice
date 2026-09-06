@@ -23,16 +23,18 @@ _HUNDRED = Decimal(100)
 
 
 def recompute_line_total(item: NormalizedLineItem) -> Decimal:
-    """Recompute a line's net total per Task rule 3.16: quantity x unit net
-    price x (1 - discount / 100). discount is a percentage; VAT is not part
-    of the net line total. Rounded to 2 decimal places, half-up.
+    """A line's net total per Task rule 3.16: quantity x unit net price x
+    (1 - discount / 100). discount is a percentage; VAT is not part of the
+    net line total. Rounded to 2 decimal places, half-up.
 
-    This is the single source of the formula: both normalizer.py (to fill
-    NormalizedLineItem.recomputed_total) and check_line_total below call it,
-    so the two never drift apart.
+    The formula itself lives on NormalizedLineItem.recomputed_total, which
+    computes it from the line's own fields rather than waiting to be
+    assigned - so a line item cannot exist with an uncomputed total. This
+    function stays as the named, importable expression of Task rule 3.16
+    (and as check_line_total's own vocabulary) and delegates to it; there
+    is still exactly one place the arithmetic is written.
     """
-    total = item.quantity * item.unit_net_price * (Decimal(1) - item.discount / _HUNDRED)
-    return total.quantize(MONEY_QUANTIZE, rounding=ROUND_HALF_UP)
+    return item.recomputed_total
 
 
 def gross_from_net(net_price: Decimal, vat_percent: Decimal) -> Decimal:

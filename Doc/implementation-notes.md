@@ -44,3 +44,73 @@ that needed a fuller write-up have their own ADR under [adr/](adr/).
 - Fixed with a tenth state rather than by folding a save into the payment state, mirroring `SAVE_AND_VERIFY_ORDER`: persisting a document is its own act/verify pair, and a save failure now files under its own step name in the manual review queue instead of the payment step's. `actions.save_invoice` re-activates the Invoice tab through the existing `_reactivate_editor` retry helper before clicking Save (unlike `save_order`, which can click directly because its editor is trivially active) - the toolbar's Save button acts on whichever editor is active, and by this point two editors are open. Probing for the Invoice's "Cust.Ref." is unambiguous despite the Order having the same field name, because Eclipse only exposes the active tab's contents to UI Automation.
 - `verify_invoice_saved` checks the assigned invoice number, Cust.Ref., Total, and every payment field, but deliberately not the item grid: that read is a vision call, the lines were verified against the same record in the immediately preceding state, and a save does not edit lines - Total is the aggregate signal that would catch it if one changed. The payment checks are shared rather than duplicated: `payment_problems` was split out of `verify_payment_applied` so both callers run identical checks, and a post-save failure aggregates into `verify_invoice_saved`'s own reason instead of being reported under the payment step's name. See `Doc/adr/0008-save-and-verify-invoice.md`.
 - Confirmed live end to end (2026-09-06): a full run from the order image reached `DONE` through the new state with the Invoice saved by the automation and verified, no manual-review entry. The tab re-activation found the Invoice's "Cust.Ref." probe without ambiguity against the Order editor's identically named field, confirming the "only the active tab's contents are exposed to UI Automation" premise `save_invoice` depends on.
+
+## P0 refactor — what the boundaries cost and what they bought (2026-09-06)
+
+- **The exit code was the cheapest real bug in the repo.** `__main__.main()`
+  called `run_workflow(...)` and dropped the returned `WorkflowState` on the
+  floor. Since `run_workflow` deliberately swallows `ManualReviewRequired`
+  (it routes it to the queue and returns the state it stopped at), a run that
+  failed at `normalize` and a run that reached `DONE` were indistinguishable
+  from outside the process: both exit 0, both silent. Ten lines to fix, and it
+  is the only defect found in this pass that a user could hit without reading
+  any code.
+- **Two "checks" could not fail, and one of them lied about it.**
+  `VALIDATE_ORDER` re-ran `check_required_fields` and the `ADD_ORDER_LINES`
+  loop re-ran `check_line_total` — both on the record `normalize_order` had
+  already validated and *raised on*, so neither could ever fire. What made
+  this worth fixing rather than just deleting is that `VALIDATE_ORDER`'s own
+  docstring described the Task 4.1/4.3 check (addresses, products, overall
+  total, before saving) that nothing in the codebase performed. The state now
+  reads the Order editor's own Total Net/VAT/Total back and compares them,
+  which is the first check in the whole workflow that can catch a
+  *whole-order* problem — Fakturama's arithmetic over the lines, a non-zero
+  order-level discount, a pricing mode that reverted to Gross. No per-line
+  check can see any of those. Addresses are still not read back; the field is
+  a multi-line Edit nobody has probed for read-back, and that is now said out
+  loud in the function's docstring rather than implied by a state's name.
+- **The selector split was costing more than duplication.** Order-editor
+  knowledge lived in three files, and the two visible symptoms were both
+  documented as *necessary*: ADR 0008 D5 explained why `"New Invoice"` had to
+  be declared twice, and the Items grid was described in three hand-synced
+  places (10 rendered columns, 6 read-back columns, and the same 6 headers
+  again as literals in `comparisons.line_row_problems`). Neither was actually
+  necessary - both were symptoms of partitioning selectors by *consuming
+  section* rather than by *screen*. With `ui_automation/screens.py` sitting
+  below every consumer, the literal is declared once and the two column
+  subsets are *selected* from the rendered list by a helper that raises at
+  import time on a name the grid doesn't have. The subsets came out
+  byte-identical to the hand-written ones, which is the check that the vision
+  prompts did not change.
+- **`ui_automation` had drifted away from its own ADR, in writing.** ADR 0007
+  Decision 3 says the package "is not error_handling-aware and should not
+  become so"; `vision_grounding.py` and `grid_geometry.py` were raising
+  `ManualReviewRequired` at 21 sites between them, with a hardcoded default
+  `step` string that reached the manual-review queue as
+  `"ui_automation.read_grid_rows"` instead of the workflow step. Worth
+  recording as a pattern rather than an incident: the ADR was right and the
+  code was wrong, and nothing detects that except reading both. The package
+  now imports nothing from this project at all - a stronger property than the
+  ADR asked for, and the easiest one to keep true by grep.
+- **Splitting `actions.py` (815 lines) surfaced one seam worth naming.** Four
+  of the five new modules are just "one screen each". `items_grid.py` is not:
+  it is separated from `order_editor.py` because it is a different
+  *mechanism*, not a different part of the same screen. Everything else on
+  that editor is a real UIA element that can be found, written and read; the
+  Items grid has no rows, no cells and no child controls, so a value gets in
+  by measuring drawn separator lines, computing a coordinate, clicking it,
+  typing blind, and then reading the row back through a vision call to find
+  out whether any of it worked. That is the only place in the codebase that
+  writes without a control to write to, and it reads better with a module
+  boundary and a docstring saying so.
+- **`recomputed_total` was an invariant held by call order.** It was a mutable
+  field the normalizer assigned *after* constructing the line item. Every
+  order-level total in the system derives from it - including the payment
+  Value typed into Fakturama - so a `NormalizedLineItem` built any other way
+  contributed 0.00 to an invoice, silently. Making it a computed property cost
+  nothing (`validators.recompute_line_total` delegates, so Task rule 3.16
+  still has exactly one home and its named importable form) and removes the
+  possibility entirely. Same shape for `is_paid`: the rule deciding whether
+  money is recorded as received existed as two independent copies of
+  `.strip().upper() == "PAID"`, one at the site that writes payment and one at
+  the site that verifies it.
