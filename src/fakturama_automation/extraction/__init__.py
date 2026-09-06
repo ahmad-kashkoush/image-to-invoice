@@ -1,11 +1,8 @@
 """Extraction package.
 
 Reads a single order image and produces raw structured data using a vision
-capable LLM (Claude Haiku 4.5, chosen for cost - see config.py), with OCR
-as a low confidence fallback. See section 1 of the project plan.
-
-Note: the OCR fallback pass (ocr_fallback.py) is currently a stub for this
-demo build - see that module's docstring.
+capable LLM, with OCR as a low confidence fallback (currently a stub for
+this demo build - see ocr_fallback.py).
 """
 
 from __future__ import annotations

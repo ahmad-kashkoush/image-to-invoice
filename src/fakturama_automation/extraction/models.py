@@ -1,9 +1,8 @@
 """Raw data models produced by extraction, before fakturama_automation.normalization.
 
-Section 1 (extraction). Fields here are intentionally loose (mostly str)
-because they come straight off a vision LLM or OCR pass and have not been
-typed, rounded, or validated yet. See normalization/models.py for the typed,
-validated counterparts.
+Fields here are intentionally loose (mostly str) because they come straight
+off a vision LLM or OCR pass and have not been typed, rounded, or validated
+yet. See normalization/models.py for the typed, validated counterparts.
 
 Confidence keying convention (relied on by
 normalization.validators.check_confidence):

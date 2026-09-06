@@ -1,19 +1,14 @@
 """Vision LLM based extraction of order data from a single image.
 
-Section 1 (extraction), primary pass.
+Uses a vision LLM (see config.py) via the anthropic SDK, forcing a single
+structured tool call (`record_order`) so the response is parsed as a dict
+rather than free text. Every field the model could not read is left None
+(never guessed), with a self-reported per-field confidence.
 
-Uses Claude Haiku 4.5 (see config.py) via the anthropic SDK, forcing a
-single structured tool call (`record_order`) so the response is parsed as a
-dict rather than free text. Every field the model could not read is left
-None (never guessed), with a self-reported per-field confidence.
-
-Confidence honesty note: the confidence values returned here are the model's
-own self-assessment, not a calibrated probability. They are only used to
-decide what would warrant a closer look (see ocr_fallback.py, currently a
-stub for this demo build) - never as proof that a value is correct. The
-real correctness gate for line items lives in
-normalization/validators.py::check_line_total, which recomputes each total
-deterministically from quantity, unit price, and discount.
+Confidence is the model's own self-assessment, not a calibrated
+probability - it only decides what warrants a closer look, never proof a
+value is correct. The real correctness gate for line items is the
+deterministic recomputation in normalization/validators.py::check_line_total.
 """
 
 from __future__ import annotations
