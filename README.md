@@ -1,4 +1,7 @@
+
 # Fakturama Automation
+
+See [Doc/Design.md](Doc/Design.md) for the architecture and design decisions.
 
 Takes a single order image, extracts and normalizes its data via a vision
 LLM (with OCR as a low confidence fallback), and drives Fakturama's UI to
@@ -10,47 +13,23 @@ than continuing silently.
 
 Out of scope: Delivery, Correction, and Dunning documents.
 
-## Known gaps in this build
+## Setup
 
-This is a pre-interview demo build, not a production deployment, so a
-couple of things were deliberately scoped down for cost/time rather than
-left as accidental gaps:
+If you're using Claude Code, run the `/setup` skill (`.claude/skills/setup/`)
+to create the virtualenv, install dependencies, and configure `.env`.
+Otherwise:
 
-- **Vision model**: extraction uses Claude Haiku 4.5 rather than a larger
-  model, chosen for cost. It is vision-capable and sufficient for reading a
-  single order image, but a production build would likely default to a
-  larger, more capable model.
-- **OCR fallback**: `fakturama_automation.extraction.ocr_fallback` is a
-  stub (a no-op pass-through), not a real Tesseract/OCR implementation.
-  This doesn't weaken correctness - fields the vision pass reports as low
-  confidence are still caught by
-  `normalization.validators.check_confidence` and routed to manual review;
-  real OCR would only have recovered some of those cases by cross-checking
-  against a second source, not gated correctness.
+```
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+cp .env.example .env   # then fill in ANTHROPIC_API_KEY
 
-## Platform
+```
 
-This runs inside a Windows 11 ARM VM (via VMware Fusion on Apple Silicon),
-with Fakturama installed inside the same VM. Automation uses pywinauto's
-uia backend (real Microsoft UI Automation), not coordinate based clicking
-and not the macOS Accessibility API. The code in this repo assumes it runs
-on Windows; `pywinauto` will not import on macOS or Linux.
-
-## VM setup
-
-1. Install VMware Fusion on the Apple Silicon Mac.
-2. Create a Windows 11 ARM VM.
-3. Inside the VM, download and install Fakturama from
-   https://www.fakturama.info/downloads.
-4. Set up a shared folder between the Mac host and the VM, used as:
-   - an in folder for order images to process
-   - an out folder for logs and the manual review queue (entries written
-     by `fakturama_automation.error_handling.manual_review` when a match
-     is ambiguous or a verification fails)
-5. Install Python 3.11+ inside the VM, then install the project in
-   editable mode so the `fakturama_automation` package (under `src/`) is
-   importable: `pip install -e .`. Plain `pip install -r requirements.txt`
-   only gets you the pywinauto dependency, not this package on the path.
+Running the workflow against Fakturama
+(`python -m fakturama_automation.orchestrator <image_path>`) only works on
+Windows, with the Fakturama application already open — `pywinauto`'s `uia`
+backend it depends on doesn't work on macOS/Linux.
 
 ## Project structure
 
@@ -108,10 +87,32 @@ accidental local copy.
 7. **Invoice creation and payment status**, last, since it depends on an
    already verified saved Order.
 
-## Notes
+# Progress
 
-- Entity resolution is exact match only, no fuzzy matching. A wrong match
-  is worse than routing to creation or manual review.
-- Line totals are recomputed from quantity, unit price, and discount and
-  compared against the source line total, both during normalization and
-  again immediately after each order line is entered.
+**[Demo video — TODO: add link]**
+
+## Done
+
+- [x] Image Extraction
+- [x] Normalization & Validation
+- [x] UI Automation (control discovery)
+- [x] Entity Resolution
+- [x] Verification
+- [x] Error Handling
+- [x] Orchestrator
+- [ ] Full live run through `ADD_ORDER_LINES` and beyond (blocked, see
+      `TODo.md`'s "Not started" section)
+
+## Next Steps
+
+If I have 3 more hours I will:
+
+- Fix `ADD_ORDER_LINES` on a multi-line
+  order.
+- Fix `vat_rate.py` such as `debtor.py`
+- Probe the unprobed screens (Data > Documents, the linked Invoice
+  editor, its payment controls) with `spikes/uia_probe_editor.py` and
+  fill in `verification/config.py`'s empty placeholders.
+- Run the full workflow end-to-end on the golden sample order
+  (`WEB-2026-0714-A17`) and fix whatever the first live failure past
+  `ADD_ORDER_LINES` turns out to be.
