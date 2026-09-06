@@ -1,44 +1,26 @@
 """Vision-based reading of custom-rendered (non-UIA) grid controls.
 
-Section 3 (ui_automation), added for Section 4 (entity_resolution) and
-reused by Section 5 (verification). Doc/Design.md's control discovery
-section explicitly sanctions this: "OCR or visual inspection can
-disambiguate a control when UIA metadata is insufficient (for example, a
-custom-rendered element); the actual interaction still targets the
-corresponding UIA element rather than falling back to coordinate-based
-clicking." Fakturama's list/search result grids (Debtors, Products,
-Products, VATs, terms of payment) are exactly this case: probing them
-(probes/probe-06-debitors.txt, probe-07-products.txt,
-probe-09-Payment.txt) found each results pane has no child controls at
-all - no DataItem/ListItem rows, no readable cell text - so entity
-resolution's "search, then read the result rows" step cannot be done with
-controls.find_all_controls the way every other Section 3 lookup is.
+Doc/Design.md's control discovery section sanctions this: visual
+inspection may disambiguate a control when UIA metadata is insufficient.
+Fakturama's list/search result grids (Debtors, Products, VATs, terms of
+payment) have no child controls at all - no DataItem/ListItem rows, no
+readable cell text - so reading them needs a screenshot + vision read
+instead of controls.find_all_controls.
 
-This module is split in two, matching the same seam ui_automation already
-uses elsewhere (Doc/adr/0002):
+Split in two, matching ui_automation's existing seam (Doc/adr/0002):
+- capture_control_image: touches a live pywinauto control, Windows/VM-only.
+- read_grid_rows/read_combo_options/read_active_row_cells: pure w.r.t.
+  their injectable `client` param (same pattern as
+  extraction.vision_extractor.extract_from_image) - fully unit-testable.
 
-- capture_control_image: the one function that touches a live pywinauto
-  control (`.capture_as_image()`). Windows/VM-only, like ui_automation.app;
-  not unit tested here for the same reason app.py isn't.
-- read_grid_rows / read_combo_options: pure with respect to their `client`
-  parameter, which is injectable exactly like
-  extraction.vision_extractor.extract_from_image's `client` - a real
-  anthropic.Anthropic() by default, a fake exposing `.messages.create(...)`
-  in tests. No pywinauto import, no network call in tests, fully
-  unit-testable on macOS/Linux.
-
-read_combo_options is the Section 4 residual's addition (Doc/adr/0006):
-Fakturama's ComboBox dropdown popups turned out to be just as UIA-opaque
-as the list grids (probes/probe-11-product-vat-combo-open.txt,
-probes/probe-12-debito-country-combo-open.txt: a single childless Pane),
-and - unlike the list grids - that popup isn't even a descendant of the
-main window, so there's no UIA element left to `.select()` an option on.
-entity_resolution.combos works around this by screenshotting the main
-window itself right after opening the combo (capture_control_image is a
-screen-rect grab, not a UIA-tree walk, so it captures the dropdown overlay
-too) and asking read_combo_options to both name and locate
-(`ComboOption.bbox`) each option, so the caller can click the matched
-option's screen coordinate directly instead of selecting it via UIA.
+read_combo_options (Doc/adr/0006): Fakturama's ComboBox dropdown popups are
+just as UIA-opaque as the list grids, and the popup isn't even a
+descendant of the main window - no UIA element to `.select()` an option
+on. entity_resolution.combos works around this by screenshotting the main
+window right after opening the combo (a screen-rect grab captures the
+dropdown overlay too) and asking read_combo_options to both name and
+locate (`ComboOption.bbox`) each option, so the caller clicks the matched
+option's screen coordinate directly.
 """
 
 from __future__ import annotations
@@ -54,6 +36,8 @@ from fakturama_automation.error_handling.exceptions import ManualReviewRequired
 from fakturama_automation.ui_automation import config
 
 _ROWS_TOOL_NAME = "record_grid_rows"
+_LOCATED_ROWS_TOOL_NAME = "record_grid_rows_located"
+_ACTIVE_ROW_CELLS_TOOL_NAME = "record_active_row_cells"
 _COMBO_OPTIONS_TOOL_NAME = "record_combo_options"
 
 _GRID_PROMPT_TEMPLATE = """\
@@ -87,6 +71,58 @@ list.
 Call the {tool_name} tool exactly once with the complete result.
 """
 
+_ACTIVE_ROW_PROMPT_TEMPLATE = """\
+This image is a screenshot of an editable results grid/table from the
+Fakturama desktop application, with column headers: {columns}.
+
+Exactly one data row is the "active" row - it is visually highlighted
+(shaded/colored background, usually blue) to show it is currently selected
+for editing, unlike every other (white/unshaded) row. Locate that one
+active row only - ignore every other row in the grid.
+
+For each of this grid's columns, give the exact column name (copied
+verbatim from {columns}) and the active row's cell bounding box in pixel
+coordinates within this image (top-left origin): x, y, width, height,
+tightly enclosing that one cell (from the column's left boundary to its
+right boundary, at the active row's height) - even if the cell is empty or
+shows placeholder-looking text, still give its location, since it needs to
+be clicked. Give exactly one entry per column listed.
+
+Call the {tool_name} tool exactly once with the complete result.
+"""
+
+_LOCATED_GRID_PROMPT_TEMPLATE = """\
+This image is a screenshot of a results grid/table from the Fakturama \
+desktop application. The grid has these columns, in order: {columns}.
+
+Extract every visible data row (skip the header row and any empty grid \
+background). For each row, give the exact text shown in each column, \
+copied verbatim - do not reformat, translate, or infer a value that is not \
+visibly present - and its bounding box in pixel coordinates within this \
+image (top-left origin): x, y, width, height, tightly enclosing the row's \
+full clickable extent (from the left edge of the grid to the right edge of \
+its visible content). If the grid is empty (no data rows), call the tool \
+with an empty rows list.
+
+Call the {tool_name} tool exactly once with the complete result.
+"""
+
+
+@dataclass(frozen=True)
+class GridRow:
+    """One data row read back from a custom-rendered grid, located.
+
+    Mirrors ComboOption's text+bbox shape, for a caller that needs to click
+    a specific matched row (e.g. orchestrator.actions' "Select the
+    address" picker) rather than just count matches (read_grid_rows).
+
+    `bbox` is (x, y, width, height) in pixel coordinates within the
+    screenshot passed to read_grid_rows_located - not screen coordinates.
+    """
+
+    cells: dict[str, str]
+    bbox: tuple[int, int, int, int]
+
 
 @dataclass(frozen=True)
 class ComboOption:
@@ -107,13 +143,9 @@ def capture_control_image(control: Any) -> bytes:
     """Screenshot a live pywinauto control (typically a results grid pane)
     and return it as PNG bytes.
 
-    `control` is whatever pywinauto object (a UIAWrapper) the caller
-    already holds - only its documented `.capture_as_image()` method is
-    used, mirroring controls.py/waits.py's duck-typed seam (Doc/adr/0002).
-    This function is exercised only against a real Fakturama window on the
-    Windows 11 ARM VM; it has no unit test for the same reason
-    ui_automation.app has none - `.capture_as_image()` needs a real,
-    on-screen control to capture.
+    `control` is whatever pywinauto object the caller already holds - only
+    its documented `.capture_as_image()` method is used. Windows/VM-only,
+    no unit test (needs a real, on-screen control to capture).
     """
     image = control.capture_as_image()
     buffer = io.BytesIO()
@@ -131,18 +163,13 @@ def read_grid_rows(
     """Read the visible rows of a custom-rendered grid from a screenshot.
 
     Returns a list of {column_name: cell_text} dicts, one per visible data
-    row, in on-screen order. `client` is injectable (an anthropic-compatible
-    client, or a test double exposing `.messages.create(...)`) so this can
-    be tested without a real API key or network access; it defaults to a
-    real `anthropic.Anthropic()` client.
+    row, in on-screen order. `client` is injectable, defaulting to a real
+    `anthropic.Anthropic()`.
 
-    A failed vision call, a refusal, or a malformed response all raise
-    ManualReviewRequired rather than returning an empty/partial row list:
-    this feeds directly into entity_resolution's exact-match counting, and
-    an empty result must mean "the grid is actually empty", never "the read
-    failed" (Doc/Design.md's fail-closed principle - CLAUDE.md's "A missing
-    confidence score ... is treated as 0.0" applies here in spirit: an
-    uncertain read is never treated as a confident zero-match).
+    A failed call, a refusal, or a malformed response all raise
+    ManualReviewRequired rather than an empty/partial list: this feeds
+    entity_resolution's exact-match counting, and an empty result must mean
+    "the grid is actually empty", never "the read failed".
     """
     if client is None:
         client = anthropic.Anthropic()
@@ -196,6 +223,213 @@ def read_grid_rows(
         raise ManualReviewRequired(step=step, reason=f"malformed grid read result: {exc}") from exc
 
 
+def read_grid_rows_located(
+    image_bytes: bytes,
+    *,
+    columns: list[str],
+    client: Any | None = None,
+    step: str = "ui_automation.read_grid_rows_located",
+) -> list[GridRow]:
+    """Like read_grid_rows, but each row is located with a bounding box -
+    for a caller that needs to click a specific matched row (e.g.
+    orchestrator.actions' "Select the address" picker), not just count
+    matches. Same fail-closed failure handling as read_grid_rows.
+    """
+    if client is None:
+        client = anthropic.Anthropic()
+
+    tool = {
+        "name": _LOCATED_ROWS_TOOL_NAME,
+        "description": "Record every visible data row of the screenshotted grid, located, exactly once.",
+        "input_schema": _located_rows_schema(columns),
+        "strict": True,
+    }
+    prompt = _LOCATED_GRID_PROMPT_TEMPLATE.format(columns=", ".join(columns), tool_name=_LOCATED_ROWS_TOOL_NAME)
+    image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+
+    try:
+        response = client.messages.create(
+            model=config.VISION_GROUNDING_MODEL_ID,
+            max_tokens=config.VISION_GROUNDING_MAX_TOKENS,
+            tools=[tool],
+            tool_choice={"type": "tool", "name": _LOCATED_ROWS_TOOL_NAME},
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": "image/png", "data": image_b64},
+                        },
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+        )
+    except Exception as exc:  # anthropic.APIError and friends, or a fake client's own errors
+        raise ManualReviewRequired(step=step, reason=f"vision grid read failed: {exc}") from exc
+
+    if getattr(response, "stop_reason", None) == "refusal":
+        raise ManualReviewRequired(step=step, reason="vision grid read refused the request")
+
+    tool_use_blocks = [b for b in response.content if getattr(b, "type", None) == "tool_use"]
+    if not tool_use_blocks:
+        raise ManualReviewRequired(
+            step=step, reason=f"vision grid read did not return a {_LOCATED_ROWS_TOOL_NAME} tool call"
+        )
+
+    block = tool_use_blocks[0]
+    if block.name != _LOCATED_ROWS_TOOL_NAME:
+        raise ManualReviewRequired(step=step, reason=f"unexpected tool call '{block.name}'")
+
+    try:
+        rows = block.input["rows"]
+        return [
+            GridRow(
+                cells={column: str(row.get(column, "")) for column in columns},
+                bbox=(int(row["x"]), int(row["y"]), int(row["width"]), int(row["height"])),
+            )
+            for row in rows
+        ]
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ManualReviewRequired(step=step, reason=f"malformed grid read result: {exc}") from exc
+
+
+def read_active_row_cells(
+    image_bytes: bytes,
+    *,
+    columns: list[str],
+    client: Any | None = None,
+    step: str = "ui_automation.read_active_row_cells",
+) -> dict[str, tuple[int, int, int, int]]:
+    """Locate the visually-highlighted "active" row's per-column cell
+    bounding boxes in a screenshot of an editable custom-rendered grid.
+
+    A new line's cells need to be *clicked* to open their inline editors,
+    but there's no UIA row/column structure to compute a click point from
+    (even the column headers aren't UIA-exposed). Fakturama visually
+    highlights the newly-inserted row, so this asks the vision model to
+    locate it directly rather than inferring position from a row index and
+    an assumed fixed row height.
+
+    Returns {column_name: (x, y, width, height)} in screenshot pixel
+    coordinates - the caller converts to screen coordinates using the
+    captured control's own on-screen rectangle. Same fail-closed handling
+    as read_grid_rows_located.
+
+    The schema represents each column as an array element carrying its own
+    name (`{"column": ..., "x": ..., ...}`), not an object keyed by column
+    name: a column name with a space ("Item No.") as an object key raises
+    a 400 from the API.
+    """
+    if client is None:
+        client = anthropic.Anthropic()
+
+    tool = {
+        "name": _ACTIVE_ROW_CELLS_TOOL_NAME,
+        "description": "Record the active (highlighted) row's per-column cell bounding boxes, exactly once.",
+        "input_schema": _active_row_cells_schema(),
+        "strict": True,
+    }
+    prompt = _ACTIVE_ROW_PROMPT_TEMPLATE.format(columns=", ".join(columns), tool_name=_ACTIVE_ROW_CELLS_TOOL_NAME)
+    image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+
+    try:
+        response = client.messages.create(
+            model=config.VISION_GROUNDING_MODEL_ID,
+            max_tokens=config.VISION_GROUNDING_MAX_TOKENS,
+            tools=[tool],
+            tool_choice={"type": "tool", "name": _ACTIVE_ROW_CELLS_TOOL_NAME},
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": "image/png", "data": image_b64},
+                        },
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+        )
+    except Exception as exc:  # anthropic.APIError and friends, or a fake client's own errors
+        raise ManualReviewRequired(step=step, reason=f"vision active-row read failed: {exc}") from exc
+
+    if getattr(response, "stop_reason", None) == "refusal":
+        raise ManualReviewRequired(step=step, reason="vision active-row read refused the request")
+
+    tool_use_blocks = [b for b in response.content if getattr(b, "type", None) == "tool_use"]
+    if not tool_use_blocks:
+        raise ManualReviewRequired(
+            step=step, reason=f"vision active-row read did not return a {_ACTIVE_ROW_CELLS_TOOL_NAME} tool call"
+        )
+
+    block = tool_use_blocks[0]
+    if block.name != _ACTIVE_ROW_CELLS_TOOL_NAME:
+        raise ManualReviewRequired(step=step, reason=f"unexpected tool call '{block.name}'")
+
+    try:
+        cells = {
+            str(cell["column"]): (
+                int(cell["x"]),
+                int(cell["y"]),
+                int(cell["width"]),
+                int(cell["height"]),
+            )
+            for cell in block.input["cells"]
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ManualReviewRequired(step=step, reason=f"malformed active-row read result: {exc}") from exc
+
+    missing = [column for column in columns if column not in cells]
+    if missing:
+        raise ManualReviewRequired(step=step, reason=f"active-row read result missing columns: {missing!r}")
+    return {column: cells[column] for column in columns}
+
+
+def _active_row_cells_schema() -> dict:
+    cell_schema = {
+        "type": "object",
+        "properties": {
+            "column": {"type": "string"},
+            "x": {"type": "integer"},
+            "y": {"type": "integer"},
+            "width": {"type": "integer"},
+            "height": {"type": "integer"},
+        },
+        "required": ["column", "x", "y", "width", "height"],
+        "additionalProperties": False,
+    }
+    return {
+        "type": "object",
+        "properties": {"cells": {"type": "array", "items": cell_schema}},
+        "required": ["cells"],
+        "additionalProperties": False,
+    }
+
+
+def _located_rows_schema(columns: list[str]) -> dict:
+    row_schema = {
+        "type": "object",
+        "properties": {
+            **{column: {"type": "string"} for column in columns},
+            "x": {"type": "integer"},
+            "y": {"type": "integer"},
+            "width": {"type": "integer"},
+            "height": {"type": "integer"},
+        },
+        "required": [*columns, "x", "y", "width", "height"],
+        "additionalProperties": False,
+    }
+    return {
+        "type": "object",
+        "properties": {"rows": {"type": "array", "items": row_schema}},
+        "required": ["rows"],
+        "additionalProperties": False,
+    }
+
+
 def _rows_schema(columns: list[str]) -> dict:
     row_schema = {
         "type": "object",
@@ -220,15 +454,10 @@ def read_combo_options(
     """Read the visible option rows of an opened combo/dropdown from a
     screenshot, each with its bounding box within that screenshot.
 
-    Mirrors read_grid_rows' injectable-client, tool-forced-call shape
-    (same failure handling: a failed call, a refusal, or a malformed
-    response all raise ManualReviewRequired rather than returning an
-    empty/partial list - an uncertain read must never be mistaken for "the
-    dropdown has no options"). The bbox is the one thing read_grid_rows
-    doesn't need: there is no UIA element to .select() on an option here
-    (entity_resolution.combos.pick_option's caller clicks the matched
-    option's screen coordinate instead), so the model is asked to locate
-    each option, not just transcribe it.
+    Mirrors read_grid_rows' injectable-client shape and fail-closed
+    handling. The bbox is needed here (unlike read_grid_rows) because
+    there's no UIA element to .select() an option on - the caller clicks
+    the matched option's screen coordinate instead.
     """
     if client is None:
         client = anthropic.Anthropic()

@@ -1,7 +1,7 @@
 """Exceptions raised by fakturama_automation.ui_automation.
 
-Section 3 (ui_automation). These should generally propagate up to
-error_handling rather than being swallowed locally.
+These should generally propagate up to error_handling rather than being
+swallowed locally.
 """
 
 from __future__ import annotations

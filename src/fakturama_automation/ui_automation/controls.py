@@ -1,33 +1,23 @@
 """Control location helpers built on pywinauto's uia backend.
 
-Section 3 (ui_automation). Locate controls by control type, accessible
-name or label, UI hierarchy and container, and relationships to
-surrounding controls. Never locate by screen coordinates.
+Locate controls by control type, accessible name or label, UI hierarchy
+and container, and relationships to surrounding controls. Never by screen
+coordinates.
 
-No pywinauto import here: `parent` is whatever pywinauto object (a
-WindowSpecification/UIAWrapper) the caller already holds, and only its
-documented `descendants()` method is used below. This keeps this module
-(and its tests) importable on macOS/Linux, unlike ui_automation.app.
+No pywinauto import here: `parent` is whatever pywinauto object the caller
+already holds, and only its documented `descendants()` method is used -
+keeps this module (and its tests) importable on macOS/Linux.
 
-Every caller passes `main_window` (the top-level Dialog) as `parent` for
-controls several Panes/Toolbars deep (see probes/probe-00-root.txt) - so
-this must search the whole subtree, not just immediate children.
-`parent.children()` uses UIA's TreeScope_Children (immediate children
-only) and would never find them; `parent.descendants()` uses
-TreeScope_Descendants, matching how every call site here is actually used.
-
-`auto_id` (added alongside Section 4/entity_resolution): probing
-Fakturama's Debtor/Product/Payment screens (probes/probe-*.txt) found many
-controls - search boxes, first/last name fields, a results grid's
-container Pane - carry no accessible name at all and are identified only
-by pywinauto's `auto_id`. Matching by `name` alone can't find these (every
-blank-named Edit under a parent looks identical), so `auto_id` is an
-optional, independent filter alongside `control_type`/`name`, passed
-through to `parent.descendants()` unchanged from pywinauto's own kwarg.
+Uses `parent.descendants()` (TreeScope_Descendants), not `.children()`
+(immediate children only): callers pass `main_window` as `parent` for
+controls several Panes/Toolbars deep. `auto_id` is an optional filter
+alongside `control_type`/`name` for controls with no accessible name at
+all (common on Fakturama's Debtor/Product/Payment screens).
 """
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from fakturama_automation.ui_automation import waits
@@ -43,17 +33,27 @@ def find_control(
 ) -> Any:
     """Locate a single control under parent, retrying within timeout_seconds.
 
-    Ambiguity (more than one match) is raised as soon as it's seen, without
-    waiting out the rest of the timeout: it reflects the current
-    parent/context, not a timing race, so resolving it means the caller
-    passing a more specific parent (see Doc/Design.md's control discovery
-    section), not retrying the same search.
+    Ambiguity (more than one match) is raised immediately, without waiting
+    out the timeout: it reflects the current parent/context, not a timing
+    race, so resolving it means passing a more specific parent, not retrying.
+
+    A transient `_ctypes.COMError` from `parent.descendants()` is treated
+    as "no match yet" and retried rather than raised - confirmed live this
+    is a genuine transient UIA hiccup, most often seen querying a dialog
+    moments after connecting to its window handle. Imported locally since
+    it only exists on Windows.
     """
+    from _ctypes import COMError
+
     matches: list[Any] = []
 
     def _has_any_match() -> bool:
         nonlocal matches
-        matches = find_all_controls(parent, control_type, name, auto_id)
+        try:
+            matches = find_all_controls(parent, control_type, name, auto_id)
+        except COMError:
+            matches = []
+            return False
         return len(matches) >= 1
 
     if not waits.wait_until(_has_any_match, timeout_seconds=timeout_seconds):
@@ -68,16 +68,85 @@ def find_control(
     return matches[0]
 
 
+def focus(main_window: Any) -> None:
+    """Bring main_window to the OS foreground immediately before a
+    click_input() call.
+
+    click_input() sends a real OS-level mouse click at screen coordinates,
+    so it depends on main_window being the actual foreground window.
+    Confirmed live: without this, a "successful" click on another app's
+    foreground window landed nowhere near Fakturama. Call before every
+    click_input(), not just once per screen - later actions can lose
+    foreground to another application.
+    """
+    main_window.set_focus()
+
+
+def set_text(
+    control: Any, text: str, timeout_seconds: float = 5.0, poll_interval_seconds: float = 0.25
+) -> None:
+    """set_text() on control, retrying while it raises a transient "element
+    not enabled" COM error.
+
+    Fakturama can briefly disable a field's Edit right after an adjacent
+    field changes. `is_enabled()` is not a reliable predictor of this
+    (confirmed live: reads True immediately before a retry that still
+    fails), so this retries the actual `set_text()` call on that specific
+    error rather than gating on a pre-check.
+    """
+    from _ctypes import COMError
+
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            control.set_text(text)
+            return
+        except COMError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(poll_interval_seconds)
+
+
+_SEND_KEYS_SPECIAL_CHARS = "+^%~(){}"
+
+
+def escape_send_keys(text: str) -> str:
+    """Escape pywinauto send_keys' special/modifier characters (+^%~(){})
+    so type_keys sends text literally. Shared by type_text and any other
+    caller driving type_keys directly.
+    """
+    return "".join(f"{{{ch}}}" if ch in _SEND_KEYS_SPECIAL_CHARS else ch for ch in text)
+
+
+def type_text(control: Any, text: str) -> None:
+    """Type text into control via real keystrokes (type_keys), instead of
+    set_text()'s UIA ValuePattern.SetValue.
+
+    Needed for entity_resolution.debtor's Company field: set_text() reads
+    back correctly but silently fails to persist through Save (confirmed
+    live) - real keystrokes fix it. Not a blanket replacement for
+    set_text(); use only where a field is confirmed to need it.
+    """
+    control.click_input()
+    control.type_keys(escape_send_keys(text), with_spaces=True)
+
+
 def find_all_controls(
     parent: Any,
     control_type: str,
     name: str | None = None,
     auto_id: str | None = None,
 ) -> list[Any]:
-    """Locate every matching control under parent, no retry."""
+    """Locate every matching control under parent, no retry.
+
+    `auto_id` is filtered here in Python, not passed to `descendants()`:
+    pywinauto's uia backend has no `auto_id`/`automation_id` kwarg on that
+    call (confirmed: passing one raises TypeError).
+    """
     kwargs: dict[str, Any] = {"control_type": control_type}
     if name is not None:
         kwargs["title"] = name
+    matches = parent.descendants(**kwargs)
     if auto_id is not None:
-        kwargs["auto_id"] = auto_id
-    return parent.descendants(**kwargs)
+        matches = [control for control in matches if control.element_info.automation_id == auto_id]
+    return matches
