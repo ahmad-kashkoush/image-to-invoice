@@ -1,11 +1,3 @@
-"""Tests for normalization.normalizer.normalize_order.
-
-Pure-function tests: no network, no UI. The golden fixture mirrors the
-assessment's sample synthetic order (WEB-2026-0714-A17, Northstar Office
-GmbH) so its known-correct arithmetic (line nets 450.00 / 120.00, net total
-570.00) doubles as a regression check on the Task rule 3.16 formula.
-"""
-
 from __future__ import annotations
 
 import datetime
@@ -43,7 +35,6 @@ ORDER_CONF = {
 
 
 def _golden_raw_order(**overrides) -> RawOrder:
-    """The sample order image: WEB-2026-0714-A17, Northstar Office GmbH."""
     defaults = dict(
         source_image_path="/orders/WEB-2026-0714-A17.png",
         order_date="2026-07-14",

@@ -1,9 +1,3 @@
-"""Everything the workflow does to Fakturama's Invoice editor.
-
-Create it from the saved Order, apply the extracted payment, save it.
-Never imports pywinauto.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -16,15 +10,6 @@ from fakturama_automation.verification import comparisons
 
 
 def create_linked_invoice(app: Any, order_window: Any, *, client: Any = None) -> Any:
-    """Create the Invoice linked to order_window and return its editor pane.
-
-    Via the saved Order's own "Create a follow-up document" panel, which
-    preserves the Order relationship and inherits its pricing mode; the
-    toolbar's "Create: New Invoice" would do neither (Task 4.6).
-
-    Re-focuses order_window first: nothing before this guarantees it is
-    still the active tab. `client` is accepted for symmetry, unused.
-    """
     controls.focus(app.main_window())
     order_window.set_focus()
     controls.find_control(
@@ -39,17 +24,6 @@ def create_linked_invoice(app: Any, order_window: Any, *, client: Any = None) ->
 
 
 def apply_payment(app: Any, invoice_window: Any, order: NormalizedOrder, *, client: Any = None) -> None:
-    """Set the payment method and, if the order is paid, check "paid" and
-    fill in the payment date and full invoice value.
-
-    Checking "paid" is what makes the date/Value fields exist in the UI tree
-    at all, so both lookups happen after that click.
-
-    The combo is set with .select(): clicking its option by coordinate is
-    unreliable. Date/Value go through replace_text because Fakturama
-    pre-fills Value - typing over it without clearing concatenated the two
-    (a 678.30 invoice read back as 678,678.30).
-    """
     method_combo = locators.payment_method_combo(invoice_window)
     method_combo.select(order.payment_method)
 
@@ -75,17 +49,14 @@ def apply_payment(app: Any, invoice_window: Any, order: NormalizedOrder, *, clie
 
 
 def save_invoice(app: Any, invoice_window: Any) -> None:
-    """Re-activate the Invoice editor, then save it.
-
-    Unlike save_order this cannot just click: Save acts on whichever editor
-    is active, and by now the Order editor is also open and verification has
-    been reading controls in between. Probing for the Invoice's Cust.Ref. is
-    unambiguous despite the Order having the same field, because Eclipse
-    only exposes the active tab's contents to UIA.
-
-    Saving is what creates the Invoice row - confirmed live that payment
-    applied to an unsaved editor never reached the database at all.
-    """
+    # Unlike save_order this cannot just click: Save acts on whichever editor
+    # is active, and by now the Order editor is also open and verification has
+    # been reading controls in between. Probing for the Invoice's Cust.Ref. is
+    # unambiguous despite the Order having the same field, because Eclipse only
+    # exposes the active tab's contents to UIA.
+    #
+    # Saving is what creates the Invoice row - payment applied to an unsaved
+    # editor never reached the database at all.
     main_window = app.main_window()
     controls.reactivate_editor(
         main_window,

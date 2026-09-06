@@ -28,14 +28,10 @@ from pywinauto import Application
 
 
 def _dump_subtree(control, indent: int = 0) -> None:
-    """Recursively print each control's identifying info (control_type,
-    auto_id, name, class_name) and its rectangle, in the style of
-    WindowSpecification.print_control_identifiers() - but that method only
-    exists on the lazy WindowSpecification proxy, not on already-resolved
-    leaf wrapper instances (e.g. StaticWrapper) like the ones returned by
-    window.descendants(), so this uses only universally-available wrapper
-    methods (.element_info, .children()) instead.
-    """
+    # In the style of WindowSpecification.print_control_identifiers(), but that
+    # method only exists on the lazy WindowSpecification proxy, not on the
+    # already-resolved leaf wrappers window.descendants() returns - so this
+    # uses only universally-available wrapper methods.
     info = control.element_info
     prefix = "  " * indent
     auto_id = getattr(info, "automation_id", None) or ""

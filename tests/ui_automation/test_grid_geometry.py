@@ -1,29 +1,3 @@
-"""Tests for ui_automation.grid_geometry.
-
-`read_grid_geometry` is pure - PNG bytes in, numbers out - and it is the
-most subtle deterministic code in the repo: five tuned pixel thresholds and
-a lattice-snapping step that was added after a live run failed closed over a
-one-pixel disagreement. It also sits directly on the path that writes
-quantities into an accounting document, where a wrong-but-plausible
-coordinate types into the wrong cell exactly as convincingly as into the
-right one. So it is worth pinning.
-
-**What these tests do and don't cover.** The fixture is *synthetic*: a grid
-drawn here to the structure the algorithm expects (a grey header strip,
-full-height column separators, evenly pitched row lines). That pins the
-contract - column count and bounds, where the first data row starts, the
-scroll and clipping rejections, and that the darkness threshold is what
-distinguishes a separator from background - so a future change to
-grid_geometry cannot silently move any of them.
-
-It does *not* prove the algorithm agrees with how Fakturama actually renders
-its Items grid; only a capture from the real app can do that, and this
-project has no way to take one off the VM. Replacing `_grid_png` with a
-committed real screenshot is the stronger version of this test and is worth
-doing on the next VM session - the assertions below would mostly carry over
-unchanged.
-"""
-
 from __future__ import annotations
 
 import io
@@ -55,10 +29,6 @@ def _grid_png(
     columns: int = COLUMN_COUNT,
     line_colour: int = LINE_DARK,
 ) -> bytes:
-    """Draw a grid to the structure grid_geometry reads: a grey header
-    strip, `columns + 1` full-height column separators, and evenly pitched
-    horizontal row lines below the header.
-    """
     image = Image.new("L", (WIDTH, HEIGHT), BACKGROUND)
     pixels = image.load()
 
@@ -85,9 +55,8 @@ def _grid_png(
 
 
 def _cropped_from(image_bytes: bytes, left: int) -> bytes:
-    """The same grid scrolled horizontally: the left edge cut off, so the
-    first separator no longer sits on it.
-    """
+    # The same grid scrolled horizontally: the left edge cut off, so the first
+    # separator no longer sits on it.
     image = Image.open(io.BytesIO(image_bytes)).crop((left, 0, WIDTH, HEIGHT))
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")

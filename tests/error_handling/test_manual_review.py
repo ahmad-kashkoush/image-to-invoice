@@ -1,11 +1,3 @@
-"""Tests for error_handling.manual_review.route_to_manual_review.
-
-Pure filesystem tests: no network, no UI, no real `out` folder - out_dir
-is always tmp_path. The source image path reuses the assessment's golden
-sample order (WEB-2026-0714-A17) so entries read like a real workflow
-failure rather than an arbitrary string.
-"""
-
 from __future__ import annotations
 
 import json

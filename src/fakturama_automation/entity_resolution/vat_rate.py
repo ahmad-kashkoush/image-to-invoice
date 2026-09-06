@@ -1,15 +1,3 @@
-"""VAT rate resolution: search Fakturama by exact percent, create a new
-VAT rate only if no exact match exists.
-
-Used when resolving a product that needs a VAT rate not yet present in
-Fakturama (see product.py::_create_product). Fakturama's own create form
-calls this entity "TAX Rate", even though every other screen says "VATs".
-
-Follows the same search_grid_exact + resolve_exact_or_create shape as
-debtor.py/product.py, but matches numerically (matching.exact_vat_matches),
-not by exact text, since the search key is a VAT percent rather than a
-name.
-"""
 
 from __future__ import annotations
 
@@ -20,11 +8,6 @@ from fakturama_automation.entity_resolution import config, matching, resolver
 from fakturama_automation.entity_resolution.models import ResolvedEntity
 from fakturama_automation.ui_automation import controls, screens
 
-# read_grid_rows column labels for the vision pass - the results grid's
-# rows are UIA-invisible (like every other entity's), so these aren't
-# independently confirmed from the probe; they mirror the create form's
-# own "Name"/"Value" field labels (entity_resolution/config.py).
-
 
 def resolve_vat_rate(
     app: Any,
@@ -33,13 +16,6 @@ def resolve_vat_rate(
     client: Any = None,
     settle_seconds: float = config.SEARCH_SETTLE_SECONDS,
 ) -> ResolvedEntity:
-    """Resolve a VAT percent to a Fakturama VAT rate record, by exact
-    percent match.
-
-    `app` is a connected FakturamaApp-like handle (`.main_window()` only).
-    `client` is the injectable vision client for reading the VATs results
-    grid.
-    """
     main_window = app.main_window()
 
     def search_by() -> list[ResolvedEntity]:
@@ -65,9 +41,6 @@ def resolve_vat_rate(
 
 
 def _open_vats_list(main_window: Any) -> None:
-    """Select the VATs list from the left Navigation View (same
-    click_input() pattern as debtor._open_debtors_list).
-    """
     controls.focus(main_window)
     controls.find_control(main_window, "Text", name=screens.VATS_NAV_NAME).click_input()
 
@@ -78,23 +51,6 @@ def _create_vat_rate(
     *,
     settle_seconds: float = config.SEARCH_SETTLE_SECONDS,
 ) -> None:
-    """Open the New TAX Rate form, fill Name and Value, save, and
-    confirm the save took.
-
-    Only Name and Value are filled - Category/Description/"VAT code
-    (E-Invoice)" are optional and left at their defaults.
-
-    Value is written with controls.replace_text, not type_text: it comes
-    pre-filled with "0%", and plain type_text (click + type, no clear)
-    inserts into that existing "0%" instead of replacing it, so Fakturama
-    silently saved the record with Value "0%" regardless of what was typed.
-    Every other field in this module starts out blank.
-
-    This is the record whose silent mis-save started the worst bug in this
-    project's history, which is why the read-back below checks Value
-    numerically as well as Name: a rate saved as 0% is invisible to this
-    resolver's own next search, so every run created another duplicate.
-    """
     controls.focus(main_window)
     controls.find_control(main_window, "Button", name=screens.VAT_NEW_BUTTON_TITLE).click_input()
 

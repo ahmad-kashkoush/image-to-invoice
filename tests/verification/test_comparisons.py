@@ -1,13 +1,3 @@
-"""Tests for verification.comparisons.
-
-Pure, no fakes needed - same style as tests/entity_resolution/test_matching.py.
-Uses the golden sample order's numbers (WEB-2026-0714-A17, Northstar Office
-GmbH: line 1 CHR-ERG-01 qty 2 @ 250.00, 10% discount, 19% VAT, net 450.00;
-line 2 MAT-DESK-02 qty 3 @ 40.00, 0% discount, 19% VAT, net 120.00; totals
-net 570.00, VAT 108.30, gross 678.30) so the derived-totals arithmetic is
-checked against a known-correct example, not just invariants.
-"""
-
 from __future__ import annotations
 
 import datetime

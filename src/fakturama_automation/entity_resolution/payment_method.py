@@ -1,10 +1,3 @@
-"""Payment method resolution: search Fakturama by exact name, create a new
-payment method only if no exact match exists.
-
-Fakturama calls this entity "terms of payment" in its own UI, but "New
-Term of Payment" in the create form's own tab title.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -21,13 +14,6 @@ def resolve_payment_method(
     client: Any = None,
     settle_seconds: float = config.SEARCH_SETTLE_SECONDS,
 ) -> ResolvedEntity:
-    """Resolve a payment method name to a Fakturama record, by exact
-    name match.
-
-    `app` is a connected FakturamaApp-like handle (`.main_window()` only).
-    `client` is the injectable vision client for reading the payment
-    methods results grid.
-    """
     main_window = app.main_window()
 
     def search_by() -> list[ResolvedEntity]:
@@ -53,10 +39,6 @@ def resolve_payment_method(
 
 
 def _open_payment_methods_list(main_window: Any) -> None:
-    """Select the "terms of payment" list from the left Navigation View
-    (same click_input() pattern as debtor._open_debtors_list). Fakturama's
-    own nav label is "terms of payment", not "Payment methods".
-    """
     controls.focus(main_window)
     controls.find_control(main_window, "Text", name=screens.PAYMENT_METHODS_NAV_NAME).click_input()
 
@@ -67,12 +49,7 @@ def _create_payment_method(
     *,
     settle_seconds: float = config.SEARCH_SETTLE_SECONDS,
 ) -> None:
-    """Open the New Term of Payment form, fill its Name, save, and
-    confirm the save took.
-
-    Only Name is filled - Account/Description/Payment code/Cash discount/
-    Discount Days/Net Days are all optional and left at their defaults.
-    """
+    # Only Name is filled; every other field on the form is optional.
     controls.focus(main_window)
     controls.find_control(main_window, "Button", name=screens.PAYMENT_NEW_BUTTON_TITLE).click_input()
 

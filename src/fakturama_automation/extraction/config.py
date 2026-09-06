@@ -1,9 +1,3 @@
-"""Configuration for the vision extraction pass.
-
-MODEL_ID defaults to Haiku 4.5, not a larger model: vision-capable and far
-cheaper than Opus/Sonnet, sufficient for reading a single order image.
-"""
-
 from __future__ import annotations
 
 import os

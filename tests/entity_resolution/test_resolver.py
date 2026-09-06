@@ -1,10 +1,3 @@
-"""Tests for entity_resolution.resolver.resolve_exact_or_create.
-
-Pure function tests - search_by/create are plain callables, no UI, no
-network. search_grid_exact (pywinauto/vision-grounded) is not unit tested;
-verify it live on the VM instead.
-"""
-
 from __future__ import annotations
 
 import pytest

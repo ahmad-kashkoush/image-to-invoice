@@ -1,9 +1,3 @@
-"""Everything the workflow does to Fakturama's Order editor.
-
-Open it, fill its order-level fields, attach the resolved Debtor, add one
-verified line per item, save it. Never imports pywinauto.
-"""
-
 from __future__ import annotations
 
 import time
@@ -21,7 +15,6 @@ _POPULATE_STEP = "populate_order_fields"
 
 
 def open_new_order(app: Any) -> Any:
-    """Click "Create: New Order" and return the new editor's own Pane."""
     main_window = app.main_window()
     toolbar.click_new_order(main_window)
     return controls.find_control(
@@ -35,13 +28,6 @@ def open_new_order(app: Any) -> Any:
 def populate_order_fields(
     app: Any, window: Any, order: NormalizedOrder, *, client: Any = None, settle_seconds: float = config.SETTLE_SECONDS
 ) -> None:
-    """Resolve the Debtor and Payment Method, fill Cust.Ref., switch to Net
-    pricing, then attach the resolved Debtor.
-
-    There is no Payment Method field on the Order screen at all (confirmed
-    live) - resolve_payment_method is called here only so the record exists
-    by the time the Invoice's combo is set by text.
-    """
     debtor.resolve_debtor(app, order, client=client, settle_seconds=settle_seconds)
     payment_method.resolve_payment_method(app, order.payment_method, client=client, settle_seconds=settle_seconds)
 
@@ -60,7 +46,6 @@ def populate_order_fields(
 
 
 def _reactivate(main_window: Any, window: Any, probe_type: str, probe_name: str) -> Any:
-    """controls.reactivate_editor with this section's retry/timeout policy."""
     return controls.reactivate_editor(
         main_window,
         window,
@@ -72,12 +57,6 @@ def _reactivate(main_window: Any, window: Any, probe_type: str, probe_name: str)
 
 
 def _set_pricing_mode_net(main_window: Any) -> None:
-    """Switch the Order from its "Gross" default to "Net".
-
-    Every price this codebase enters is net. Left on Gross, the Order treats
-    U.Price as gross-inclusive and extracts VAT backward out of it -
-    silently wrong totals, no error. Not optional, not a preference.
-    """
     mode_combo = locators.sibling_after_label(main_window, screens.ORDER_DATE_LABEL_NAME, offset=2)
     mode_combo.select(screens.ORDER_PRICING_MODE_NET_OPTION)
 
@@ -91,18 +70,6 @@ def _attach_debtor_to_order(
     settle_seconds: float = config.SETTLE_SECONDS,
     timeout_seconds: float = config.DIALOG_TIMEOUT_SECONDS,
 ) -> None:
-    """Attach the already-resolved Debtor via the "Select the address"
-    picker.
-
-    Deliberately does NOT verify an exact text match on the Company cell
-    the way every other resolver's search does: that column can render too
-    narrow to show the full value (a real "Northstar Office GmbH" row read
-    back clipped to "thstar Office ..."), so an equality check against the
-    untruncated target could never pass even for the correct row. It trusts
-    Fakturama's own search filtering and requires exactly one row instead -
-    a narrower guarantee than the rest of this codebase. See README's Next
-    Steps for the fix (match on the Customer ID, which doesn't clip).
-    """
     controls.focus(main_window)
     attach_button = locators.sibling_after_label(
         main_window, screens.ORDER_ADDRESSES_LABEL_NAME, timeout_seconds=timeout_seconds
@@ -143,13 +110,6 @@ def add_order_line(
     client: Any = None,
     settle_seconds: float = config.SETTLE_SECONDS,
 ) -> None:
-    """Resolve the line's Product by exact SKU, add it via the "Select a
-    product" picker, then fill and verify the cells the pick doesn't supply.
-
-    `position` is the line's 1-based position, which is also what the grid's
-    Pos. column shows, since lines are added in order. `window` is used only
-    to re-select this Order's tab after resolution navigated away.
-    """
     product.resolve_product(app, item, client=client, settle_seconds=settle_seconds)
 
     main_window = app.main_window()
@@ -187,12 +147,6 @@ def add_order_line(
 
 
 def save_order(app: Any, window: Any) -> None:
-    """Click Save. Unlike save_invoice this can click directly - the Order
-    editor is trivially the active tab by now.
-
-    `window` is unused, accepted so every step shares the state loop's
-    (app, window, ...) convention.
-    """
     main_window = app.main_window()
     controls.focus(main_window)
     toolbar.click_save(main_window)

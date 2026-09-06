@@ -1,11 +1,3 @@
-"""Tests for entity_resolution.matching's pure exact-match filters.
-
-Rows are plain dicts ({"text": ...}) as read_grid_rows would return them -
-no screenshot, no live window, no vision client. See
-tests/ui_automation/test_controls.py for the equivalent "no external
-dependency" test style in this codebase.
-"""
-
 from __future__ import annotations
 
 from decimal import Decimal

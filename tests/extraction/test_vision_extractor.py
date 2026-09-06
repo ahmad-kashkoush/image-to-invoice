@@ -1,10 +1,3 @@
-"""Tests for extraction.vision_extractor.
-
-No network calls: the anthropic client is replaced with a fake exposing
-just `.messages.create(...)`, matching the injectable `client` parameter
-on extract_from_image.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path

@@ -1,16 +1,3 @@
-"""Vision LLM based extraction of order data from a single image.
-
-Uses a vision LLM (see config.py) via the anthropic SDK, forcing a single
-structured tool call (`record_order`) so the response is parsed as a dict
-rather than free text. Every field the model could not read is left None
-(never guessed), with a self-reported per-field confidence.
-
-Confidence is the model's own self-assessment, not a calibrated
-probability - it only decides what warrants a closer look, never proof a
-value is correct. The real correctness gate for line items is the
-deterministic recomputation in normalization/validators.py::check_line_total.
-"""
-
 from __future__ import annotations
 
 import base64
@@ -162,13 +149,6 @@ low confidence for smudged, handwritten, cut-off, or ambiguous text - do not def
 
 
 def extract_from_image(image_path: Path, *, client: Any | None = None) -> RawOrder:
-    """Run the vision LLM extraction pass on a single order image.
-
-    `client` is injectable (an anthropic-compatible client, or a test
-    double exposing `.messages.create(...)`) so this can be tested without
-    a real API key or network access; it defaults to a real
-    `anthropic.Anthropic()` client.
-    """
     media_type = _media_type_for(image_path)
     image_b64 = base64.standard_b64encode(image_path.read_bytes()).decode("utf-8")
 

@@ -1,13 +1,6 @@
-"""The "Select the address" / "Select a product" picker dialogs.
-
-Both are separate top-level OS windows, structurally identical, and driven
-the same way: open, type a key into "Search:", read the UIA-invisible
-results grid, click the single matching row, click OK.
-
-Imports neither editor - it takes the button that opens the dialog and a
-callback for describing a wrong row count, so both callers share one
-implementation. Never imports pywinauto.
-"""
+# Imports neither editor - it takes the button that opens the dialog and a
+# callback for describing a wrong row count, so both callers share one
+# implementation.
 
 from __future__ import annotations
 
@@ -36,25 +29,19 @@ def pick_row_via_picker(
     stabilize_seconds: float = config.DIALOG_STABILIZE_SECONDS,
     attempts: int = config.DIALOG_OPEN_ATTEMPTS,
 ) -> None:
-    """Open dialog_title via open_button and pick the single row matching
-    key, retrying the *whole* open-search-pick cycle on a transient
-    UI-discovery failure.
-
-    The dialog can vanish anywhere in the interaction, not just at open
-    time (confirmed live: identical back-to-back attempts, one failure and
-    one success), so the whole cycle is the retryable unit and
-    _open_picker_dialog runs with attempts=1 so its own retry doesn't
-    multiply against this one. Escape closes any leftover dialog first, so
-    the next click can't collide with a stale window of the same title.
-
-    ManualReviewRequired - a real "zero or many rows" outcome, not a race -
-    propagates immediately rather than being retried.
-
-    A retry can reopen a picker that already succeeded. That is safe only
-    because the caller checks afterwards that exactly one row holds this key
-    (items_grid.row_problems): the retry is not assumed idempotent, it is
-    proven to be.
-    """
+    # The dialog can vanish anywhere in the interaction, not just at open time
+    # (identical back-to-back attempts, one failure and one success), so the
+    # whole open-search-pick cycle is the retryable unit - and
+    # _open_picker_dialog runs with attempts=1 so its own retry does not
+    # multiply against this one. Escape closes any leftover dialog first, so
+    # the next click cannot collide with a stale window of the same title.
+    #
+    # ManualReviewRequired - a real "zero or many rows" outcome, not a race -
+    # propagates immediately rather than being retried.
+    #
+    # A retry can reopen a picker that already succeeded. That is safe only
+    # because the caller then checks that exactly one row holds this key: the
+    # retry is not assumed idempotent, it is proven to be.
     last_error: Exception = ControlNotFoundError(
         f"{dialog_title!r} was never opened: attempts={attempts}"
     )
@@ -93,16 +80,11 @@ def _open_picker_dialog(
     stabilize_seconds: float = config.DIALOG_STABILIZE_SECONDS,
     attempts: int = config.DIALOG_OPEN_ATTEMPTS,
 ) -> Any:
-    """Click open_button and return the dialog it opens, re-clicking if the
-    dialog isn't really there yet.
-
-    Two distinct failures, both confirmed live and both retried here. The
-    dialog can flash open and close again within a fraction of a second of
-    the click, so its visibility is re-checked after a stabilize delay. And
-    window-visible is not content-ready: it can pass that check with no
-    "Search:" box rendered yet, so its content is probed too rather than
-    handing back a dialog that isn't usable.
-    """
+    # Two distinct failures, both retried here. The dialog can flash open and
+    # closed within a fraction of a second of the click, so its visibility is
+    # re-checked after a stabilize delay. And window-visible is not
+    # content-ready: it can pass that check with no "Search:" box rendered yet,
+    # so its content is probed too.
     last_error: Exception = ControlNotFoundError(
         f"{dialog_title!r} was never opened: attempts={attempts}"
     )
@@ -141,11 +123,6 @@ def _pick_single_row_in_dialog(
     not_one_row_reason: Callable[[int, list[Any]], str],
     timeout_seconds: float = config.DIALOG_TIMEOUT_SECONDS,
 ) -> None:
-    """Search for `key`, read the results grid, click the single matching
-    row, then OK.
-
-    Raises ManualReviewRequired if the grid doesn't show exactly one row.
-    """
     label = locators.search_label(dialog, timeout_seconds=timeout_seconds)
     locators.search_edit(label, timeout_seconds=timeout_seconds).set_text(key)
     time.sleep(settle_seconds)

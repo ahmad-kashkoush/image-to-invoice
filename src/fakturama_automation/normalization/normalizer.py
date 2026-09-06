@@ -1,15 +1,3 @@
-"""Top level normalization entry point.
-
-Converts every field on a RawOrder into its typed, canonical NormalizedOrder
-counterpart (ISO dates, rounded Decimal money, plain-number percentages,
-trimmed text), then runs the validators in validators.py. Fields that fail
-to parse do not raise immediately: they are recorded and normalization
-keeps going, so a single malformed field does not hide other problems on
-the same order. If anything failed to parse or any validator check fails,
-one aggregated ManualReviewRequired is raised instead of returning a
-partially-trustworthy order.
-"""
-
 from __future__ import annotations
 
 import datetime
@@ -24,13 +12,6 @@ from fakturama_automation.normalization.validators import (
     check_line_total,
     check_required_fields,
 )
-
-# ISO first (the canonical format Fakturama and this pipeline standardize
-# on), with an unambiguous day-first fallback for the German-locale source
-# documents this system targets. Anything else fails closed rather than
-# being guessed (e.g. an ambiguous MM/DD vs DD/MM slash date). Deliberately
-# narrower than verification's list, which parses what a widget renders
-# rather than what a human wrote.
 _DATE_FORMATS = ["%Y-%m-%d", "%d.%m.%Y"]
 
 
@@ -40,12 +21,6 @@ def normalize_order(
     confidence_threshold: float = config.DEFAULT_CONFIDENCE_THRESHOLD,
     line_total_tolerance: Decimal = config.DEFAULT_LINE_TOTAL_TOLERANCE,
 ) -> NormalizedOrder:
-    """Normalize a RawOrder into a NormalizedOrder, or raise ManualReviewRequired.
-
-    Every parse failure and validator failure is collected before raising,
-    so error_handling gets one specific, complete reason rather than the
-    first problem found.
-    """
     failures: list[str] = []
 
     order = NormalizedOrder(

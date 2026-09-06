@@ -1,19 +1,3 @@
-"""Vision-based reading of custom-rendered (non-UIA) grid controls.
-
-Fakturama's list/search grids and its ComboBox dropdown popups have no
-child controls at all - no rows, no readable cell text - so reading them
-needs a screenshot and a vision pass instead of find_all_controls. The
-dropdown popup isn't even a descendant of the main window, so there is no
-element to `.select()` an option on either; read_combo_options locates each
-option so the caller can click its coordinate (Doc/adr/0003, 0006).
-
-Split along ui_automation's existing seam (Doc/adr/0002):
-capture_control_image touches a live control and is Windows-only; the three
-reads are pure with respect to their injectable `client`.
-
-Failures raise GridReadError, never ManualReviewRequired - see exceptions.py.
-"""
-
 from __future__ import annotations
 
 import base64
@@ -80,33 +64,21 @@ Call the {tool_name} tool exactly once with the complete result.
 
 @dataclass(frozen=True)
 class GridRow:
-    """One located data row, for a caller that must click a matched
-    row rather than just count matches.
-
-    `bbox` is (x, y, width, height) within the screenshot, not on screen.
-    """
-
+    # `bbox` is (x, y, width, height) within the screenshot, not on screen.
     cells: dict[str, str]
     bbox: tuple[int, int, int, int]
 
 
 @dataclass(frozen=True)
 class ComboOption:
-    """One option row from an opened dropdown.
-
-    `bbox` is (x, y, width, height) within the screenshot, not on screen;
-    entity_resolution.combos converts it before clicking.
-    """
-
+    # `bbox` is (x, y, width, height) within the screenshot, not on screen;
+    # entity_resolution.combos converts it before clicking.
     text: str
     bbox: tuple[int, int, int, int]
 
 
 def capture_control_image(control: Any) -> bytes:
-    """Screenshot a live pywinauto control and return it as PNG bytes.
-
-    Windows/VM-only - needs a real, on-screen control.
-    """
+    # Windows/VM-only - needs a real, on-screen control.
     image = control.capture_as_image()
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
@@ -123,12 +95,8 @@ def _read_via_vision_tool(
     client: Any | None,
     what: str,
 ) -> dict[str, Any]:
-    """Send one screenshot with one forced tool call, returning the
-    tool's input dict.
-
-    Every way this can go wrong raises GridReadError, so a caller never has
-    to distinguish "the grid is empty" from "the read did not happen".
-    """
+    # Every way this can go wrong raises GridReadError, so a caller never has
+    # to distinguish "the grid is empty" from "the read did not happen".
     if client is None:
         client = anthropic.Anthropic()
 
@@ -176,7 +144,6 @@ def _read_via_vision_tool(
 
 
 def _parsed(what: str, parse: Callable[[], Any]) -> Any:
-    """Convert any shape problem in a tool result into GridReadError."""
     try:
         return parse()
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
@@ -189,13 +156,6 @@ def read_grid_rows(
     columns: list[str],
     client: Any | None = None,
 ) -> list[dict[str, str]]:
-    """Read a grid's visible rows as {column: cell_text} dicts, in
-    on-screen order.
-
-    Never returns an empty or partial list on failure: this feeds
-    entity_resolution's exact-match counting, where an empty result must
-    mean "the grid is actually empty", never "the read failed".
-    """
     what = "vision grid read"
     result = _read_via_vision_tool(
         image_bytes,
@@ -218,9 +178,6 @@ def read_grid_rows_located(
     columns: list[str],
     client: Any | None = None,
 ) -> list[GridRow]:
-    """read_grid_rows, but with a bounding box per row - for a caller
-    that must click the matched row, not just count matches.
-    """
     what = "vision grid read"
     result = _read_via_vision_tool(
         image_bytes,
@@ -250,11 +207,6 @@ def read_combo_options(
     *,
     client: Any | None = None,
 ) -> list[ComboOption]:
-    """Read an opened dropdown's option rows, each with its bounding box.
-
-    The bbox is needed here because there is no UIA element to .select() an
-    option on - the caller clicks the matched option's coordinate instead.
-    """
     what = "vision combo read"
     result = _read_via_vision_tool(
         image_bytes,

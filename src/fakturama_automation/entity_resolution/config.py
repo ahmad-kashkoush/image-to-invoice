@@ -1,8 +1,3 @@
-"""Tunables for entity resolution.
-
-Control identifiers live in `ui_automation.screens`, one home per screen.
-"""
-
 from __future__ import annotations
 
 import os

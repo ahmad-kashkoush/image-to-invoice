@@ -1,10 +1,3 @@
-"""Product resolution: search Fakturama by exact SKU, create a new
-Product only if no exact match exists.
-
-Control identifiers are pinned from live VM probes and live in
-ui_automation/screens.py, the one selector inventory for every screen.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -24,17 +17,6 @@ def resolve_product(
     client: Any = None,
     settle_seconds: float = config.SEARCH_SETTLE_SECONDS,
 ) -> ResolvedEntity:
-    """Resolve a line item's product for a normalized order to a
-    Fakturama record, by exact SKU.
-
-    `app` is a connected FakturamaApp-like handle (`.main_window()` only).
-    `client` is the injectable vision client for reading the Products
-    results grid.
-
-    A missing VAT rate for a new product is created via
-    vat_rate.resolve_vat_rate *before* the product form is filled in, so
-    the product's VAT combo always has an option to select.
-    """
     sku = item.sku
     main_window = app.main_window()
 
@@ -52,6 +34,7 @@ def resolve_product(
         return [ResolvedEntity(identity=sku, created=False) for _ in matches]
 
     def create() -> ResolvedEntity:
+        # Before the form is filled, so its VAT combo always has an option.
         resolve_vat_rate(app, item.vat_percent, client=client)
         _create_product(main_window, item, client=client, settle_seconds=settle_seconds)
         return ResolvedEntity(identity=sku, created=True)
@@ -62,9 +45,6 @@ def resolve_product(
 
 
 def _open_products_list(main_window: Any) -> None:
-    """Select the Products list from the left Navigation View (same
-    click_input() pattern as debtor._open_debtors_list; see its docstring).
-    """
     controls.focus(main_window)
     controls.find_control(main_window, "Text", name=screens.PRODUCTS_NAV_NAME).click_input()
 
@@ -76,20 +56,7 @@ def _create_product(
     client: Any = None,
     settle_seconds: float = config.SEARCH_SETTLE_SECONDS,
 ) -> None:
-    """Open the New Product form, fill it from the normalized line
-    item, select its VAT rate, save, and confirm the save took.
-
-    The price field is GROSS while the line item's price is net, so the
-    value typed is converted first (validators.gross_from_net). Writing the
-    net figure straight in made Fakturama derive net / (1 + VAT) for every
-    Order line built from the record: a 250.00 net chair became $210.08 a
-    unit, with nothing raising until final verification.
-
-    Every field is filled via controls.type_text (real keystrokes), not
-    set_text(): set_text() can silently fail to persist a freshly-created
-    record's field through Save with no reliable rule for which field is
-    affected, so keystrokes are used uniformly here.
-    """
+    # The price field is GROSS while the line item's price is net, so the value
     controls.focus(main_window)
     controls.find_control(main_window, "Button", name=screens.PRODUCT_NEW_BUTTON_TITLE).click_input()
 

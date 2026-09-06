@@ -1,10 +1,3 @@
-"""Debtor resolution: search Fakturama by exact company name, create a new
-Debtor only if no exact match exists.
-
-Control identifiers are pinned from live VM probes and live in
-ui_automation/screens.py, the one selector inventory for every screen.
-"""
-
 from __future__ import annotations
 
 import time
@@ -23,15 +16,6 @@ def resolve_debtor(
     client: Any = None,
     settle_seconds: float = config.SEARCH_SETTLE_SECONDS,
 ) -> ResolvedEntity:
-    """Resolve the debtor for a normalized order to a Fakturama record.
-
-    `app` is a connected FakturamaApp-like handle (`.main_window()` only -
-    every control here lives in Fakturama's single main window). `client`
-    is the injectable vision client for reading the Debtors results grid.
-
-    Matches by exact `order.debtor_company_name` only. Ambiguity (>1 exact
-    match) raises ManualReviewRequired rather than picking one.
-    """
     company_name = order.debtor_company_name
     main_window = app.main_window()
 
@@ -58,11 +42,6 @@ def resolve_debtor(
 
 
 def _open_debtors_list(main_window: Any) -> None:
-    """Select the Debtors list from the left Navigation View.
-
-    The nav item renders as a UIA "Text" control, not a Button, so it's
-    clicked via click_input() on its discovered bounding rect.
-    """
     controls.focus(main_window)
     controls.find_control(main_window, "Text", name=screens.DEBTORS_NAV_NAME).click_input()
 
@@ -74,28 +53,9 @@ def _create_debtor(
     client: Any = None,
     settle_seconds: float = config.SEARCH_SETTLE_SECONDS,
 ) -> None:
-    """Open the New Debtor form, fill it from the normalized order,
-    save, and confirm the save took.
-
-    `settle_seconds` is used once, after Street: setting ZIP/City
-    immediately after Street raises a persistent COMError that
-    `controls.set_text`'s own retry never recovers from, since Fakturama
-    rebuilds the row's widgets out from under the already-fetched wrapper -
-    a fresh lookup moments later finds a live Edit, so this settles before
-    the ZIP/City lookup starts rather than retrying a stale reference.
-
-    The read-back at the end checks Company specifically because that is
-    the field that failed: set_text() read back correctly right up until
-    the Save click, then came back empty every time. It is also the key
-    every later lookup of this Debtor matches on, so a Company that did not
-    persist makes the record unfindable.
-    """
     controls.focus(main_window)
     controls.find_control(main_window, "Button", name=screens.DEBTOR_NEW_BUTTON_TITLE).click_input()
 
-    # type_text (real keystrokes), not set_text: set_text() silently fails
-    # to persist this field through Save (see controls.type_text) - every
-    # other field below keeps using set_text(), which works fine for them.
     controls.type_text(
         controls.find_control(main_window, "Edit", name=screens.DEBTOR_COMPANY_EDIT_NAME),
         order.debtor_company_name,
@@ -103,9 +63,6 @@ def _create_debtor(
 
     if order.contact_name:
         first_name, _, last_name = order.contact_name.partition(" ")
-        # Both Edits are blank-named, so located structurally: the label's
-        # own next sibling is the Pane wrapping this row's two Edits,
-        # left-to-right (First, then Last).
         name_pane = locators.sibling_pane_after_label(main_window, screens.DEBTOR_NAME_ROW_LABEL_NAME)
         first_name_edit, last_name_edit = name_pane.descendants(control_type="Edit")
         first_name_edit.set_text(first_name)

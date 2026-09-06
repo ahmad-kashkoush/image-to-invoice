@@ -1,10 +1,3 @@
-"""Tests for ui_automation.waits.
-
-Fake app/dialog objects duck-type only the pywinauto methods actually used
-(`.window(title_re=)`, `.exists()`) - no pywinauto import here, so these
-tests run on macOS/Linux without a real window or the uia backend.
-"""
-
 from __future__ import annotations
 
 import pytest

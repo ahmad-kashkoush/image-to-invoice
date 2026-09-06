@@ -1,14 +1,3 @@
-"""Writing and verifying one row of the Order editor's Items grid.
-
-A different mechanism from the rest of that editor, not just a different
-part of it: this grid is a custom-rendered canvas with no rows, cells or
-child controls, so a value gets in by measuring the grid's own drawn
-separator lines, computing a coordinate, clicking it, typing blind, and
-reading the row back through a vision call to find out whether it worked.
-The only place in the codebase that writes without a control to write to.
-
-Never imports pywinauto.
-"""
 
 from __future__ import annotations
 
@@ -44,22 +33,6 @@ def fill_and_verify_line(
     settle_seconds: float,
     attempts: int = config.ORDER_LINE_FILL_ATTEMPTS,
 ) -> None:
-    """Fill the just-added line's Item No./Qty./Discount cells, read the
-    row back, and retry from a freshly-located row before failing closed.
-
-    Both halves exist because a live run wrote a line's Qty. into nowhere
-    and said nothing - a write that misses the cell is typed into no
-    focused editor and leaves no trace at all.
-
-    The row comes from `position` (lines are added in order, so the caller
-    knows which row it just added) and the column from the grid's measured
-    separator lines. Neither is guessed: not Fakturama's highlight, and not
-    a vision read of the cell boxes, which was measurably wrong - it put a
-    quantity in the Item No. column and a discount in the Name column.
-
-    A retry cannot undo a stray value typed elsewhere; it rewrites the
-    target row only. verify_order_saved catches collateral damage.
-    """
     values = {
         screens.ITEMS_COL_SKU: item.sku,
         screens.ITEMS_COL_QUANTITY: str(item.quantity),
@@ -91,13 +64,6 @@ def fill_and_verify_line(
 def row_problems(
     main_window: Any, items_label: Any, item: NormalizedLineItem, *, client: Any
 ) -> list[str]:
-    """Read the grid back and compare the row for item.sku, returning one
-    message per discrepant column.
-
-    Requiring exactly one matching row is what makes the picker's retry
-    loop safe: a reopened picker that added the same SKU twice is caught
-    here.
-    """
     controls.focus_foreground(main_window)
     # The pointer still rests on the last cell written, and its tooltip
     # would be drawn over the row about to be read.
@@ -126,15 +92,11 @@ def _measure_grid(
     settle_seconds: float,
     attempts: int = config.GRID_MEASURE_ATTEMPTS,
 ) -> tuple[Any, grid_geometry.GridGeometry]:
-    """Screenshot the grid and measure its geometry, re-capturing a frame
-    that doesn't measure cleanly.
-
-    Two transient causes, both seen live: the capture is a screen-region
-    grab, so an occluded window is photographed as whatever is on top of
-    it; and the grid can be mid-relayout right after the picker closes,
-    which measured as 8 columns of a 10-column grid. Re-reading is safe in
-    a way re-writing is not - it still raises once the attempts are spent.
-    """
+    # Two transient causes, both seen live: the capture is a screen-region
+    # grab, so an occluded window is photographed as whatever is on top of it;
+    # and the grid can be mid-relayout right after the picker closes, which
+    # measured as 8 columns of a 10-column grid. Re-reading is safe in a way
+    # re-writing is not - it still raises once the attempts are spent.
     last_error: GridGeometryError | None = None
     for attempt in range(attempts):
         controls.focus_foreground(main_window)
@@ -156,19 +118,13 @@ def _measure_grid(
 
 
 def _fill_text_cell(main_window: Any, point: tuple[int, int], value: str, *, column: str = "?") -> None:
-    """Click a cell to select it, then type into it: Ctrl+A, Delete, the
-    value, Tab to commit.
-
-    These cells don't reliably expose an inline Edit to target - a
-    double-click-then-find-the-editor approach could time out even with the
-    cell visibly in edit state. Keyboard input straight to main_window works
-    every time.
-
-    A failure to type is converted to ManualReviewRequired naming the
-    column rather than escaping as a raw pywinauto error: some cells open
-    their own modal popup editor when clicked (hit live by a mislocated
-    click), and a modal disables the main window.
-    """
+    # These cells do not reliably expose an inline Edit to target - a
+    # double-click-then-find-the-editor approach timed out even with the cell
+    # visibly in edit state. Keyboard input straight to main_window works.
+    #
+    # A failure to type is converted to ManualReviewRequired naming the column
+    # rather than escaping as a raw pywinauto error: some cells open their own
+    # modal popup editor when clicked, and a modal disables the main window.
     controls.focus(main_window)
     main_window.click_input(coords=point, absolute=True)
     try:

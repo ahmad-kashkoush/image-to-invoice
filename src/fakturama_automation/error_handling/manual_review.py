@@ -1,16 +1,3 @@
-"""Manual review queue handling.
-
-The single stop point the orchestrator calls into whenever a
-ManualReviewRequired is raised. Each call appends one JSON line to a single
-queue file (`config.OUT_DIR`/`config.QUEUE_FILENAME`) - a human or future
-tool can tail/parse it without per-entry file management. See
-Doc/adr/0005-error-handling.md for the reasoning.
-
-Never raises: a write failure (unwritable out_dir, serialization problem)
-is caught and reported to stderr instead, since this is the terminal
-handler for a workflow run.
-"""
-
 from __future__ import annotations
 
 import json
@@ -30,13 +17,6 @@ def route_to_manual_review(
     out_dir: str | Path | None = None,
     now: Callable[[], datetime] = datetime.now,
 ) -> None:
-    """Record error against source_image_path in the manual review queue.
-
-    Appends one JSON line to `<out_dir>/<config.QUEUE_FILENAME>` (out_dir
-    defaults to config.OUT_DIR). Never raises: a write failure is reported
-    to stderr rather than propagated, since this is the terminal handler
-    for a workflow run.
-    """
     try:
         entry: dict[str, object] = {
             "timestamp": now().isoformat(timespec="seconds"),

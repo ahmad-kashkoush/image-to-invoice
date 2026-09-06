@@ -1,16 +1,3 @@
-"""Every Fakturama control identifier this codebase uses, by screen.
-
-A selector describes a screen, not whichever section needed it first, and
-the write path and the read-back path need identical answers. This module
-imports nothing, so any layer may read it. Timeouts and retry counts are
-not here - those are per-section tunables and live in each package's own
-`config.py`.
-
-Every identifier is pinned from a live VM probe (`probes/probe-*.txt`) or a
-live session recorded in `Doc/implementation-notes.md`. Nothing is guessed;
-a re-probe should only ever touch this file. A few entries have no caller
-yet and are kept as probe inventory.
-"""
 
 from __future__ import annotations
 
@@ -20,26 +7,12 @@ from __future__ import annotations
 APP_TITLE_RE = r"^Fakturama - "
 
 # -- Shared across every screen ----------------------------------------------
-
-# No auto_id anywhere it appears. Saves whichever editor is active, so the
-# caller owns making that the right one.
 SAVE_BUTTON_TITLE = "Save the current contents"
-
-# Labels the search box on every list screen and picker dialog; the Edit
-# itself is blank-named and found as this label's sibling.
 SEARCH_LABEL_NAME = "Search:"
 
-# Always this auto_id whichever list is active, while its *title* changes -
-# so never disambiguate by it alone; select the nav item first.
 LIST_EDITOR_TAB_AUTO_ID = "525638"
 
 # -- Navigation View: the entity list screens --------------------------------
-# Nav items render as Text, not Button, so they are clicked by rect. Each
-# results grid has a stable accessible name (its auto_id is not stable),
-# which doubles as proof the intended list is actually on screen. The rows
-# are UIA-invisible, so the columns below name what the vision read should
-# extract, not UIA properties.
-
 DEBTORS_NAV_NAME = "Debtors"
 DEBTORS_GRID_PANE_NAME = "Debtors"
 DEBTORS_SEARCH_COLUMNS = ["Company Name"]
@@ -68,8 +41,6 @@ DEBTOR_COMPANY_EDIT_NAME = "Company"
 DEBTOR_ALIAS_EDIT_NAME = "additional name"
 DEBTOR_STREET_EDIT_NAME = "Street"
 DEBTOR_COUNTRY_COMBO_NAME = "Country"
-# The Edits behind these two labels are blank-named: each label's next
-# sibling is the Pane wrapping that row's Edits, left to right.
 DEBTOR_NAME_ROW_LABEL_NAME = "First Name Last Name"
 DEBTOR_ZIP_CITY_ROW_LABEL_NAME = "ZIP - City"
 
@@ -79,11 +50,6 @@ PRODUCT_NEW_BUTTON_TITLE = "Create a new product"
 PRODUCT_SKU_EDIT_NAME = "Item Number"
 PRODUCT_NAME_EDIT_NAME = "Name"
 PRODUCT_VAT_COMBO_NAME = "VAT"
-
-# This field is Fakturama's GROSS price - confirmed live, a net figure typed
-# here came back as net / (1 + VAT) in every Order line built from the
-# record. Doubles as a price-basis check: a net-configured Fakturama would
-# label it "Price (net)" and find_control would fail closed.
 PRODUCT_PRICE_GROSS_LABEL_NAME = "Price (gross)"
 
 # -- VAT rate ("TAX Rate") form ----------------------------------------------
@@ -101,14 +67,8 @@ PAYMENT_NEW_BUTTON_TITLE = "Create a new term of payment"
 PAYMENT_NAME_EDIT_NAME = "Name"
 
 # -- Order editor ------------------------------------------------------------
-# Fields are pinned by accessible NAME, not auto_id: probing the same editor
-# across two launches showed every numeric auto_id changes between sessions
-# while the names are identical.
-
 NEW_ORDER_BUTTON_TITLE = "Create: New Order"
 
-# "New Order" until saved, then the assigned order number - both the handle
-# for locating a fresh editor and the persistence signal verification checks.
 ORDER_TAB_TITLE_UNSAVED = "New Order"
 
 ORDER_CUST_REF_EDIT_NAME = "Cust.Ref."
@@ -135,10 +95,6 @@ ORDER_ADDRESSES_LABEL_NAME = "Addresses"
 ORDER_ITEMS_LABEL_NAME = "Items"
 
 # -- Order/Invoice items grid ------------------------------------------------
-# Cells are located by counting columns off the grid's own drawn separator
-# lines (grid_geometry), so the rendered list must match what Fakturama
-# draws exactly - including the columns nothing reads.
-
 ITEMS_COL_POSITION = "Pos."
 ITEMS_COL_QUANTITY = "Qty."
 ITEMS_COL_SKU = "Item No."
@@ -169,10 +125,8 @@ ITEMS_GRID_BLANK_COLUMN = ITEMS_COL_PICTURE
 
 
 def _items_columns(*names: str) -> list[str]:
-    """Select named Items-grid columns, in the order given, raising at
-    import time on a name that grid does not have - so the subsets below
-    cannot drift from the grid they describe.
-    """
+    # Raises at import time on a name the grid does not have, so the subsets
+    # below cannot drift from the grid they describe.
     unknown = [name for name in names if name not in ITEMS_GRID_RENDERED_COLUMNS]
     if unknown:
         raise ValueError(

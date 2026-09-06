@@ -1,17 +1,3 @@
-"""CLI entry point: `python -m fakturama_automation.orchestrator <image_path>`.
-
-Thin wrapper around the state machine, reporting the outcome on the process
-exit code. run_workflow routes a ManualReviewRequired to the queue and
-returns the state it stopped at rather than raising, so without this the
-shell could not tell a completed run from one that stopped: both exited 0
-and printed nothing.
-
-`--dry-run` stops after normalization and prints the record, which is the
-whole pipeline up to the point Fakturama is needed - so a change to
-extraction or normalization can be checked in a second, on any machine,
-without a VM or an open application.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -36,7 +22,6 @@ EXIT_MANUAL_REVIEW = 1
 
 
 def main() -> int:
-    """Run the workflow for one image. Returns the process exit code."""
     load_dotenv()
     parser = argparse.ArgumentParser(
         description="Run the Fakturama order-to-invoice workflow for a single order image."
@@ -71,7 +56,6 @@ def main() -> int:
 
 
 def _dry_run(image_path: Path) -> int:
-    """Extract and normalize, print what the run would have entered, stop."""
     try:
         order = extract_and_normalize(image_path)
     except ManualReviewRequired as error:
@@ -90,9 +74,6 @@ def _report_stopped(image_path: Path, step: str, *, reason: str | None = None) -
 
 
 def _summarize(order: NormalizedOrder) -> str:
-    """The normalized record as a few readable lines - what a dry run is
-    for, and the same figures verification will compare against the UI.
-    """
     net_total, vat_total, gross_total = order_level_totals(order)
     lines = [
         f"Order date        {order.order_date}",

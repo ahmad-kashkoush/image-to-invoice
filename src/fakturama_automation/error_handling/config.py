@@ -1,5 +1,3 @@
-"""Configuration for error handling / manual review."""
-
 from __future__ import annotations
 
 import os

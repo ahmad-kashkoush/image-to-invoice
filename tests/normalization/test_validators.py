@@ -1,9 +1,3 @@
-"""Tests for normalization.validators.
-
-Pure-function tests: no network, no UI. RawOrder/RawAddress/RawLineItem are
-built directly rather than going through extraction.
-"""
-
 from __future__ import annotations
 
 from decimal import Decimal

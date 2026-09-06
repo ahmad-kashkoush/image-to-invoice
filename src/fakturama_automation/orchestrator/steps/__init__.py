@@ -1,10 +1,3 @@
-"""The UI write actions the state machine composes, one module per screen.
-
-Kept out of state_machine.py so the state loop reads as control flow, not UI
-mechanics. The loop calls the names below; the screen modules keep their own
-private helpers out of its view.
-"""
-
 from __future__ import annotations
 
 from fakturama_automation.orchestrator.steps.invoice_editor import (
