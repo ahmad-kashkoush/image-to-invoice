@@ -184,3 +184,20 @@ def test_multiple_failures_are_aggregated_into_one_exception() -> None:
     reason = str(exc_info.value)
     assert "required fields" in reason
     assert "line 1" in reason
+
+
+def test_payment_details_is_carried_through_not_dropped() -> None:
+    order = normalize_order(_golden_raw_order(payment_details=" DE89 3704 0044 0532 0130 00 "))
+    assert order.payment_details == "DE89 3704 0044 0532 0130 00"
+
+
+def test_missing_payment_details_is_optional_not_a_failure() -> None:
+    order = normalize_order(_golden_raw_order(payment_details=None))
+    assert order.payment_details == ""
+
+
+def test_low_confidence_payment_details_raises_manual_review() -> None:
+    raw = _golden_raw_order(payment_details="DE89 3704 0044 0532 0130 00")
+    raw.confidence["payment_details"] = 0.2
+    with pytest.raises(ManualReviewRequired):
+        normalize_order(raw)

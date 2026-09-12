@@ -20,7 +20,7 @@ the refactor; re-running it is Open item 1.**
 | # | Section | Package | Files | ADR |
 |---|---|---|---|---|
 | 1 | Image Extraction | `extraction/` | `vision_extractor.py` (Claude Haiku 4.5 vision pass), `ocr_fallback.py` (deliberate no-op stub), `models.py`, `config.py`, `__init__.py::extract_order` | — |
-| 2 | Normalization & Validation | `normalization/` | `normalizer.py`, `validators.py`, `models.py`, `config.py` | 0001 |
+| 2 | Normalization & Validation | `normalization/` | `normalizer.py`, `validators.py`, `models.py`, `config.py`; `payment_details` carried through (was silently dropped) | 0001, 0011 |
 | 3 | UI Control Discovery | `ui_automation/` | `controls.py`, `waits.py`, `app.py`, `exceptions.py`, `config.py`; `vision_grounding.py` + `grid_geometry.py` added later (see 4 and 7); `spikes/uia_probe.py`, `spikes/uia_probe_editor.py`, `probes/*.txt` | 0002 |
 | 4 | Entity Resolution | `entity_resolution/` | `resolver.py`, `debtor.py`, `product.py`, `vat_rate.py`, `payment_method.py`, `matching.py`, `combos.py`, `models.py`, `config.py` | 0003, 0006 |
 | 5 | Verification | `verification/` | `order_verification.py`, `invoice_verification.py`, `payment_verification.py`, `comparisons.py`, `readback.py`, `config.py` | 0004 |
@@ -116,4 +116,34 @@ Notes worth keeping in one place:
 9. **Task-spec gaps** (Order Date, currency comparison, address read-back,
    Debtor matching by Customer ID, incomplete Debtor/VAT/Payment/Product
    master-data fields, the stubbed OCR pass) — listed and ranked in
-   [README.md](README.md#next-steps).
+   [README.md](README.md#next-steps). Currency is now captured end-to-end
+   through extraction/normalization (`RawOrder.currency` →
+   `NormalizedOrder.currency`); items 10-12 below are what's still open for
+   it and the other two.
+10. **Order Date is extracted and normalized but never written or verified.**
+    `orchestrator/steps/order_editor.py::populate_order_fields` writes only
+    Cust. Ref. today. `comparisons.date_equals` already exists for the
+    verify side (`verification/comparisons.py`) but is unused anywhere — it
+    was built for exactly this and just needs wiring into
+    `order_verification.py::_field_problems`. The write side needs a live
+    VM check first: the Date edit control's locator is unconfirmed (only a
+    `"Date"` label constant exists, used today to find the pricing-mode
+    combo two siblings later — the date field itself, if directly
+    addressable, is hypothesized at one sibling closer but never probed).
+    See `.claude/plans/bug-fixes-currency-connect.md`.
+11. **Currency has no UI-side verification.** Extraction/normalization
+    capture it (see item 9); `verification/comparisons.py` has no
+    `currency_equals`, and nothing reads a currency control off the order
+    editor to compare it. Needs a live VM check first — it isn't confirmed
+    Fakturama's order editor even exposes currency as a per-order control
+    rather than a fixed per-installation setting; that decides whether this
+    is a real check or a no-op. See
+    `.claude/plans/bug-fixes-currency-connect.md`.
+12. **Addresses are normalized but never verified.** `NormalizedOrder.
+    billing_address`/`delivery_address` are fully populated; nothing in
+    `order_verification.py` compares them. `screens.py`'s only address-
+    adjacent selector is the `"Addresses"` label used to locate the Debtor-
+    attach control, not the address display itself — probing is needed to
+    learn whether the Order editor shows address as one free-text block or
+    discrete fields before a comparator can be written. See
+    `.claude/plans/bug-fixes-currency-connect.md`.
