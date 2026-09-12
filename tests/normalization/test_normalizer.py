@@ -203,6 +203,58 @@ def test_low_confidence_payment_details_raises_manual_review() -> None:
     with pytest.raises(ManualReviewRequired):
         normalize_order(raw)
 
+
+def test_unreadable_price_line_raises_manual_review_instead_of_zero() -> None:
+    # Both unit_net_price and source_line_total unreadable: _parse_money
+    # would default each to Decimal(0) independently, so without the
+    # completeness check this line would silently pass as a EUR 0.00 line.
+    raw = _golden_raw_order()
+    raw.line_items[0].unit_net_price = None
+    raw.line_items[0].source_line_total = None
+    raw.line_items[0].confidence.pop("unit_net_price", None)
+    raw.line_items[0].confidence.pop("source_line_total", None)
+    with pytest.raises(ManualReviewRequired) as exc_info:
+        normalize_order(raw)
+    reason = str(exc_info.value)
+    assert "line 1" in reason
+    assert "unreadable" in reason
+
+
+def test_discount_over_100_percent_raises_manual_review() -> None:
+    raw = _golden_raw_order()
+    raw.line_items[0].discount = "150"
+    # Keep the recomputed total consistent with the garbled discount so
+    # check_line_total doesn't also fire - isolates the range check.
+    raw.line_items[0].source_line_total = "-250.00"
+    with pytest.raises(ManualReviewRequired) as exc_info:
+        normalize_order(raw)
+    assert "discount" in str(exc_info.value)
+    assert "out of range" in str(exc_info.value)
+
+
+def test_vat_percent_over_100_raises_manual_review() -> None:
+    raw = _golden_raw_order()
+    raw.line_items[0].vat_percent = "200"
+    # vat_percent does not factor into recomputed_total, so no other check
+    # is affected by this change.
+    with pytest.raises(ManualReviewRequired) as exc_info:
+        normalize_order(raw)
+    assert "vat_percent" in str(exc_info.value)
+    assert "out of range" in str(exc_info.value)
+
+
+def test_negative_unit_net_price_raises_manual_review() -> None:
+    raw = _golden_raw_order()
+    raw.line_items[0].unit_net_price = "-250.00"
+    # Keep the recomputed total consistent with the negative price so
+    # check_line_total doesn't also fire - isolates the range check.
+    raw.line_items[0].source_line_total = "-450.00"
+    with pytest.raises(ManualReviewRequired) as exc_info:
+        normalize_order(raw)
+    assert "unit_net_price" in str(exc_info.value)
+    assert "negative" in str(exc_info.value)
+
+
 @pytest.mark.parametrize(
     "raw_currency, expected",
     [("€", "EUR"), ("EUR", "EUR"), ("Euro", "EUR"), ("£", "GBP")],
@@ -223,3 +275,16 @@ def test_ambiguous_currency_symbol_raises_manual_review(ambiguous_symbol: str) -
         normalize_order(_golden_raw_order(currency=ambiguous_symbol))
     assert "currency" in str(exc_info.value)
 
+
+def test_only_one_price_field_missing_still_fails_via_line_total_mismatch() -> None:
+    # A single missing field must not be masked by the new completeness
+    # check: the present source_line_total (450.00) won't match a
+    # recomputed total of 0, so the existing check_line_total path fires.
+    raw = _golden_raw_order()
+    raw.line_items[0].unit_net_price = None
+    raw.line_items[0].confidence.pop("unit_net_price", None)
+    with pytest.raises(ManualReviewRequired) as exc_info:
+        normalize_order(raw)
+    reason = str(exc_info.value)
+    assert "line 1" in reason
+    assert "unreadable" not in reason

@@ -9,6 +9,8 @@ from fakturama_automation.normalization import config, parsing
 from fakturama_automation.normalization.models import NormalizedAddress, NormalizedLineItem, NormalizedOrder
 from fakturama_automation.normalization.validators import (
     check_confidence,
+    check_line_item_completeness,
+    check_line_item_ranges,
     check_line_total,
     check_required_fields,
 )
@@ -53,6 +55,17 @@ def normalize_order(
                 f"line {index + 1} ({item.sku or '?'}): recomputed total {item.recomputed_total} "
                 f"does not match source total {item.source_line_total}"
             )
+
+    for line_number in check_line_item_completeness(raw_order):
+        item = order.line_items[line_number - 1]
+        failures.append(
+            f"line {line_number} ({item.sku or '?'}): price is unreadable "
+            "(both unit_net_price and source_line_total missing)"
+        )
+
+    for index, item in enumerate(order.line_items):
+        for problem in check_line_item_ranges(item):
+            failures.append(f"line {index + 1} ({item.sku or '?'}): {problem}")
 
     if not check_confidence(raw_order, confidence_threshold):
         failures.append(f"one or more extracted fields fall below the confidence threshold ({confidence_threshold})")
