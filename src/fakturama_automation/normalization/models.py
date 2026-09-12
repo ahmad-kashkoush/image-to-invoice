@@ -46,6 +46,7 @@ class NormalizedOrder:
     alias: str = ""
     billing_address: NormalizedAddress = field(default_factory=NormalizedAddress)
     delivery_address: NormalizedAddress = field(default_factory=NormalizedAddress)
+    payment_details: str = ""
     payment_method: str = ""
     payment_status: str = ""
     payment_date: datetime.date | None = None

@@ -31,6 +31,7 @@ def normalize_order(
         alias=_trim(raw_order.alias),
         billing_address=_normalize_address(raw_order.billing_address),
         delivery_address=_normalize_address(raw_order.delivery_address),
+        payment_details=_trim(raw_order.payment_details),
         payment_method=_trim(raw_order.payment_method),
         payment_status=_trim(raw_order.payment_status),
         payment_date=_parse_date(raw_order.payment_date, "payment_date", failures),

@@ -172,3 +172,61 @@ that needed a fuller write-up have their own ADR under [adr/](adr/).
   the run log now says "matched existing debtor 'X'" or "created product SKU
   'Y'", which is the distinction the ADR named, and `element` (the part with
   no consumer at all) is gone.
+
+## Currency plumbing and `connect()` hardening (2026-09-12)
+
+- **Currency is captured end-to-end, but only half the bug is fixed.**
+  `RawOrder`/`NormalizedOrder` now carry `currency`, extracted with its own
+  confidence field the same way `payment_method` is. The other half of the
+  README-tracked bug — `comparisons.py` stripping currency symbols before
+  comparing money, so a `$` total verifies clean against a EUR order — is
+  deliberately not touched here. Writing a `currency_equals` comparator with
+  no UI selector to feed it would be dead code, and it's not even confirmed
+  Fakturama's order editor shows currency as a per-order control rather than
+  a fixed installation setting. That's a VM-session question, tracked in
+  `TODo.md`.
+- **`FakturamaApp.connect()` was the one bare call in a module built entirely
+  around polling.** Every other "is this here yet" check in `app.py` goes
+  through `waits.wait_until` and raises this codebase's own
+  `DialogTimeoutError`; `connect()` alone called pywinauto directly with no
+  timeout and no `except`. Found while re-deriving the failure-mode picture
+  for interview prep, not from a bug report: if Fakturama isn't up yet when
+  the orchestrator starts, that raised a raw pywinauto exception that
+  matches none of `run_workflow`'s `_UI_DISCOVERY_ERRORS`, so it crashed the
+  process before a single `ManualReviewRequired` could be written to
+  `out/manual_review_queue.jsonl`. The fix reuses the exact shape
+  `top_level_window_by_title` already uses one function below it — polling
+  `wait_until`, broad `except Exception` around the pywinauto call (the
+  precise exception type isn't pinned down anywhere else in this codebase
+  either, e.g. `readers.py`'s `NoPatternInterfaceError` catch), and
+  `DialogTimeoutError` on timeout, which `_UI_DISCOVERY_ERRORS` already
+  catches — so no `state_machine.py` change was needed to route a failed
+  connect into manual review instead of a crash.
+
+## `payment_details` — carried, not validated (2026-09-12)
+
+- **The bug was a silent drop, not a missing check.** Extraction always read
+  `RawOrder.payment_details` (it has its own confidence entry, and was
+  already listed in `ORDER_LEVEL_CONFIDENCE_FIELDS`), but `NormalizedOrder`
+  had no field for it and `normalize_order` never read it — so it vanished at
+  the extraction→normalization boundary with nothing downstream ever the
+  wiser. The fix is one field plus one line: `NormalizedOrder.payment_details`
+  and `payment_details=_trim(raw_order.payment_details)` in `normalize_order`,
+  same treatment as `payment_method`/`payment_status`.
+- **Missing stays optional; no IBAN format check.** Both decisions are
+  recorded in ADR 0011 rather than re-derived here. The short version: the
+  golden sample order is `Bank Transfer` / `PAID` with `payment_details=None`,
+  so "required for transfers" would fail the project's own reference order,
+  and the extraction schema defines the field as free text specifically so
+  non-IBAN entries (routing/account, "see invoice", etc.) aren't rejected.
+- **The confidence gate needed a test, not a change.** Because
+  `payment_details` was already in `ORDER_LEVEL_CONFIDENCE_FIELDS`,
+  `check_confidence` already failed a present-but-low-confidence value
+  closed before this fix — that was silently untested. Added a regression
+  test for it alongside the carry-through and optional-absence cases.
+- **Still nowhere to go once normalized.** `payment_details` is now visible
+  in the `--dry-run` summary but is not written into Fakturama or verified —
+  `locators.payment_details_pane` only exposes the payment-method combo and
+  date row, and it's unconfirmed whether Fakturama keeps bank details on the
+  Debtor record or the Invoice. Tracked as a new `TODo.md` Open item; needs a
+  live-VM probe before a write/read-back path can be designed.

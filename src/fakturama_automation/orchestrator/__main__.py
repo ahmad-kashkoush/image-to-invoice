@@ -83,7 +83,8 @@ def _summarize(order: NormalizedOrder) -> str:
         f"Billing address   {_one_line(order)}",
         f"Payment           {order.payment_method} / {order.payment_status}"
         f"{f' on {order.payment_date}' if order.payment_date else ''}"
-        f"  (paid={order.is_paid})",
+        f"  (paid={order.is_paid})"
+        f"{f'  details: {order.payment_details}' if order.payment_details else ''}",
         "",
         f"{'SKU':<16}{'Qty':>6}{'U.Price':>12}{'VAT%':>7}{'Disc%':>7}{'Net':>12}",
     ]
