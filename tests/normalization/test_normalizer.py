@@ -31,6 +31,7 @@ ORDER_CONF = {
     "payment_method": HIGH_CONF,
     "payment_status": HIGH_CONF,
     "payment_date": HIGH_CONF,
+    "currency": HIGH_CONF,
 }
 
 
@@ -201,3 +202,24 @@ def test_low_confidence_payment_details_raises_manual_review() -> None:
     raw.confidence["payment_details"] = 0.2
     with pytest.raises(ManualReviewRequired):
         normalize_order(raw)
+
+@pytest.mark.parametrize(
+    "raw_currency, expected",
+    [("€", "EUR"), ("EUR", "EUR"), ("Euro", "EUR"), ("£", "GBP")],
+)
+def test_unambiguous_currency_is_canonicalized(raw_currency: str, expected: str) -> None:
+    order = normalize_order(_golden_raw_order(currency=raw_currency))
+    assert order.currency == expected
+
+
+def test_missing_currency_is_optional_not_a_failure() -> None:
+    order = normalize_order(_golden_raw_order(currency=None))
+    assert order.currency == ""
+
+
+@pytest.mark.parametrize("ambiguous_symbol", ["$", "¥"])
+def test_ambiguous_currency_symbol_raises_manual_review(ambiguous_symbol: str) -> None:
+    with pytest.raises(ManualReviewRequired) as exc_info:
+        normalize_order(_golden_raw_order(currency=ambiguous_symbol))
+    assert "currency" in str(exc_info.value)
+

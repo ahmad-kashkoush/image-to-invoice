@@ -87,6 +87,10 @@ _RECORD_ORDER_SCHEMA = {
         "payment_method": {"type": ["string", "null"]},
         "payment_status": {"type": ["string", "null"], "description": "e.g. PAID, UNPAID, PENDING, as stated or implied on the document."},
         "payment_date": {"type": ["string", "null"]},
+        "currency": {
+            "type": ["string", "null"],
+            "description": "Currency as printed - a symbol (e.g. €, £, $) or code (e.g. EUR, GBP), exactly as shown; null if none visible.",
+        },
         "line_items": {"type": "array", "items": _LINE_ITEM_SCHEMA},
         "confidence": {
             "type": "object",
@@ -107,6 +111,7 @@ _RECORD_ORDER_SCHEMA = {
         "payment_method",
         "payment_status",
         "payment_date",
+        "currency",
         "line_items",
         "confidence",
     ],
@@ -135,6 +140,8 @@ This image is a single scanned or photographed purchase order. Extract the follo
 - Order date and external reference (order/PO number).
 - Debtor company name, contact name, alias, billing address, and delivery address.
 - Payment method, payment status, payment date (if present), and any payment details (IBAN/BIC etc.).
+- Currency, exactly as printed (a symbol like €/£/$ or a code like EUR/GBP) - do not infer it \
+from the debtor's address or language.
 - For every line item: SKU, description, quantity, unit net price, VAT percent, discount, and the \
 source line total exactly as printed.
 
@@ -255,6 +262,7 @@ def _raw_order_from_tool_input(data: dict[str, Any], *, source_image_path: str) 
         payment_method=data.get("payment_method"),
         payment_status=data.get("payment_status"),
         payment_date=data.get("payment_date"),
+        currency=data.get("currency"),
         line_items=[_line_item_from_dict(item) for item in data.get("line_items") or []],
         confidence=_confidence_dict(data.get("confidence") or {}, ORDER_LEVEL_CONFIDENCE_FIELDS),
         extraction_source="vision",

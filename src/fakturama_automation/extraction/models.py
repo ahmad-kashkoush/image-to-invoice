@@ -21,6 +21,7 @@ ORDER_LEVEL_CONFIDENCE_FIELDS = [
     "payment_method",
     "payment_status",
     "payment_date",
+    "currency",
 ]
 
 
@@ -60,6 +61,7 @@ class RawOrder:
     payment_method: str | None = None
     payment_status: str | None = None
     payment_date: str | None = None
+    currency: str | None = None
     line_items: list[RawLineItem] = field(default_factory=list)
     confidence: dict[str, float] = field(default_factory=dict)
     extraction_source: str = "vision"

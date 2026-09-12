@@ -203,6 +203,20 @@ def test_unsupported_image_extension_raises_manual_review(tmp_path: Path) -> Non
         extract_from_image(image_path, client=FakeClient(response=SimpleNamespace(content=[])))
 
 
+def test_currency_is_mapped_through(tmp_path: Path) -> None:
+    image_path = tmp_path / "order.png"
+    image_path.write_bytes(b"fake-png-bytes")
+    data = _happy_path_input()
+    data["currency"] = "EUR"
+
+    response = SimpleNamespace(stop_reason="tool_use", content=[_tool_use_block(data)])
+    client = FakeClient(response=response)
+
+    raw_order = extract_from_image(image_path, client=client)
+
+    assert raw_order.currency == "EUR"
+
+
 def test_malformed_tool_input_raises_manual_review(tmp_path: Path) -> None:
     image_path = tmp_path / "order.png"
     image_path.write_bytes(b"fake-png-bytes")

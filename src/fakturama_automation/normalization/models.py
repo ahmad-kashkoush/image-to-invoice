@@ -50,6 +50,7 @@ class NormalizedOrder:
     payment_method: str = ""
     payment_status: str = ""
     payment_date: datetime.date | None = None
+    currency: str = ""
     line_items: list[NormalizedLineItem] = field(default_factory=list)
 
     @property

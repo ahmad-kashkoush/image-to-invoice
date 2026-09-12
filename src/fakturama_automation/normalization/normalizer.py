@@ -35,6 +35,7 @@ def normalize_order(
         payment_method=_trim(raw_order.payment_method),
         payment_status=_trim(raw_order.payment_status),
         payment_date=_parse_date(raw_order.payment_date, "payment_date", failures),
+        currency=_canonicalize_currency(raw_order.currency, failures),
         line_items=[
             _normalize_line_item(item, index, failures) for index, item in enumerate(raw_order.line_items)
         ],
@@ -110,6 +111,17 @@ def _parse_money(value: str | None, field_name: str, failures: list[str]) -> Dec
         failures.append(f"{field_name}: unparseable number '{text}'")
         return Decimal(0)
     return parsed.quantize(config.MONEY_QUANTIZE, rounding=ROUND_HALF_UP)
+
+
+def _canonicalize_currency(value: str | None, failures: list[str]) -> str:
+    text = _trim(value)
+    if not text:
+        return ""
+    code = parsing.canonicalize_currency(text)
+    if code is None:
+        failures.append(f"currency: ambiguous or unrecognized currency '{text}'")
+        return ""
+    return code
 
 
 def _parse_percent(value: str | None, field_name: str, failures: list[str]) -> Decimal:
