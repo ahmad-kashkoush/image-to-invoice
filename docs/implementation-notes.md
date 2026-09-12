@@ -203,6 +203,22 @@ that needed a fuller write-up have their own ADR under [adr/](adr/).
   catches — so no `state_machine.py` change was needed to route a failed
   connect into manual review instead of a crash.
 
+### Correction (2026-09-12, later same day)
+
+Both claims in the section above turned out to describe work that was never
+actually committed to code, discovered while implementing the real currency
+fix below: `RawOrder`/`NormalizedOrder` had no `currency` field at all as of
+this correction (confirmed by grepping the whole `src/` tree and diffing
+against `master`), and `FakturamaApp.connect()` (`ui_automation/app.py`) is
+still a bare `Application(backend="uia").connect(...)` call with no
+`wait_until`/timeout wrapper. `TODo.md` items 9/11 had picked up the same
+currency claim and a reference to a plan file
+(`.claude/plans/bug-fixes-currency-connect.md`) that does not exist in this
+repo. Currency is now actually implemented — see the entry below. The
+`connect()` hardening remains genuinely unimplemented and out of scope for
+this pass; flagged here rather than left silently contradicting the section
+above.
+
 ## `payment_details` — carried, not validated (2026-09-12)
 
 - **The bug was a silent drop, not a missing check.** Extraction always read
@@ -234,3 +250,61 @@ that needed a fuller write-up have their own ADR under [adr/](adr/).
   bank info as printed on the source document, with no Fakturama UI
   counterpart. The `TODo.md` Open item this originally added was removed;
   see ADR 0011's updated Consequences.
+
+## Normalization hardening: line-item completeness, range checks, real currency, and the decimal-ambiguity call (2026-09-12)
+
+A deep-dive review of `normalization/` (not from `TODo.md`/`README.md` —
+neither mentioned open work here) found four gaps:
+
+- **A line item with both `unit_net_price` and `source_line_total` unreadable
+  (`None`) silently normalized to a EUR 0.00 line.** `_parse_money` defaults
+  each missing field to `Decimal(0)` independently — correct in isolation,
+  it's the documented "didn't even attempt" case — but the collapse to
+  `Decimal(0)` happens before any check runs, so "genuinely zero" and "never
+  read" become indistinguishable to `check_required_fields` (never looks at
+  price fields), `check_line_total` (`0 == 0` passes), and `check_confidence`
+  (skips `None`-valued fields by design). Fixed with
+  `validators.check_line_item_completeness(raw_order)`, run against the raw,
+  pre-parse value — the same reason `check_confidence` already reads
+  `raw_order` instead of `NormalizedOrder`. A line missing only *one* of the
+  two fields was already caught (the present field won't match a
+  recomputed-from-zero total), so the new check is narrowly scoped to the
+  both-missing case to avoid overlapping the existing path.
+- **No plausibility bounds on parsed numbers.** A misread that happens to
+  still balance the line-total arithmetic (discount and total garbled
+  consistently) passed undetected. Added `check_line_item_ranges`: `discount`
+  and `vat_percent` in `[0, 100]`, `unit_net_price >= 0`. The VAT ceiling is a
+  direct application of the existing fail-closed principle (documented as a
+  code comment, not an ADR) — no real sales-tax rate reaches 100%, so a value
+  at or above that is a misread, not a valid rate to type into Fakturama.
+- **Currency didn't exist anywhere.** Not in `RawOrder`, `NormalizedOrder`,
+  or the extraction schema — on `master` or this branch — despite
+  `README.md`'s Next Steps already flagging the gap ("Currency is never
+  extracted... absent from the extraction schema and from both models") and
+  despite the (incorrect — see the correction note above the "Currency
+  plumbing" section) implementation-notes claim that it already was. Added
+  end-to-end: extraction captures it (schema property, a prompt line telling
+  the model not to infer it from the debtor's address/language, confidence
+  via `ORDER_LEVEL_CONFIDENCE_FIELDS`), normalization canonicalizes it to ISO
+  4217 via a new `parsing.canonicalize_currency`, and an ambiguous symbol
+  (`$`, shared by USD/CAD/AUD/…; `¥`, shared by JPY/CNY) is never guessed —
+  it fails closed to `ManualReviewRequired`, the same rule this repo already
+  applies to ambiguous dates. See ADR 0012 for which symbols/words counted as
+  unambiguous and why. UI-side verification stays open (`TODo.md`) pending a
+  live-VM probe on whether Fakturama's order editor even exposes currency
+  per-order.
+- **Decimal-separator ambiguity for dot-only input — decision: document, not
+  fix.** `normalize_decimal_separators` treats a lone `.` as a decimal point
+  unconditionally, so `"1.234"` (EU thousands-grouped `1234` vs. literal
+  `1.234`) is never flagged, unlike this codebase's explicit ambiguous-date
+  rule. Deliberately left unchanged: the function is the single shared
+  separator home for *both* money and percent parsing (P1 refactor, above),
+  and a targeted "3-digits-after-a-single-dot is ambiguous" rule would need
+  input-context threaded into that shared primitive, undoing the reason it's
+  shared in the first place. The common case is already caught downstream —
+  a mis-scaled price produces a ~1000x mismatch in `check_line_total`. The
+  residual, accepted risk: a line where *both* `unit_net_price` and
+  `source_line_total` carry the identical dot-grouped form (e.g. a
+  single-unit line genuinely printed `1.234` meaning `1234`) balances and
+  passes undetected — noted here as a known limitation for the deferred
+  localization work (`TODo.md`), not silently absorbed.
