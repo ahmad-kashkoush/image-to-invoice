@@ -6,7 +6,7 @@ from typing import Any
 from fakturama_automation.entity_resolution import combos, config, matching, resolver
 from fakturama_automation.entity_resolution.models import ResolvedEntity
 from fakturama_automation.normalization.models import NormalizedOrder
-from fakturama_automation.ui_automation import controls, locators, screens
+from fakturama_automation.ui_automation import controls, locators, readers, screens
 
 
 def resolve_debtor(
@@ -17,6 +17,9 @@ def resolve_debtor(
     settle_seconds: float = config.SEARCH_SETTLE_SECONDS,
 ) -> ResolvedEntity:
     company_name = order.debtor_company_name
+    # Same partition(" ") idiom _create_debtor uses, so a created record and a
+    # later match against it agree on what counts as First/Last Name.
+    first_name, _, last_name = order.contact_name.partition(" ")
     main_window = app.main_window()
 
     def search_by() -> list[ResolvedEntity]:
@@ -29,12 +32,26 @@ def resolve_debtor(
             vision_client=client,
             settle_seconds=settle_seconds,
         )
-        matches = matching.exact_text_matches(rows, company_name, read=lambda row: row[screens.DEBTORS_SEARCH_COLUMNS[0]])
-        return [ResolvedEntity(identity=company_name, created=False) for _ in matches]
+        no_col, first_col, last_col, company_col, zip_col, city_col = screens.DEBTORS_SEARCH_COLUMNS
+        matches = matching.exact_debtor_matches(
+            rows,
+            company=company_name,
+            first_name=first_name,
+            last_name=last_name,
+            zip_code=order.billing_address.postal_code,
+            city=order.billing_address.city,
+            company_column=company_col,
+            first_name_column=first_col,
+            last_name_column=last_col,
+            zip_column=zip_col,
+            city_column=city_col,
+        )
+        return [ResolvedEntity(identity=row[no_col], created=False) for row in matches]
 
     def create() -> ResolvedEntity:
         _create_debtor(main_window, order, client=client, settle_seconds=settle_seconds)
-        return ResolvedEntity(identity=company_name, created=True)
+        customer_id = readers.read_field_text(main_window, name=screens.DEBTOR_CUSTOMER_ID_EDIT_NAME)
+        return ResolvedEntity(identity=customer_id, created=True)
 
     return resolver.resolve_exact_or_create(
         search_by, create, entity=f"debtor '{company_name}'", step="resolve_debtor"

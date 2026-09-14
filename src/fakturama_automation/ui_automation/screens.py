@@ -15,7 +15,7 @@ LIST_EDITOR_TAB_AUTO_ID = "525638"
 # -- Navigation View: the entity list screens --------------------------------
 DEBTORS_NAV_NAME = "Debtors"
 DEBTORS_GRID_PANE_NAME = "Debtors"
-DEBTORS_SEARCH_COLUMNS = ["Company Name"]
+DEBTORS_SEARCH_COLUMNS = ["No.", "First Name", "Name", "Company", "ZIP", "City"]
 
 PRODUCTS_NAV_NAME = "Products"
 PRODUCTS_GRID_PANE_NAME = "Products"
@@ -36,7 +36,10 @@ PAYMENT_METHODS_SEARCH_COLUMNS = ["Name"]
 # -- Debtor form -------------------------------------------------------------
 
 DEBTOR_NEW_BUTTON_TITLE = "Create a new debtor"
-DEBTOR_FORM_CUSTOMER_ID_AUTO_ID = "133128"
+# Has a real accessible name ("Customer ID") per
+# probes/probe-04-fill-create-debitor.txt - unlike this app's blank-named
+# controls, no need for its (session-unstable) auto_id.
+DEBTOR_CUSTOMER_ID_EDIT_NAME = "Customer ID"
 DEBTOR_COMPANY_EDIT_NAME = "Company"
 DEBTOR_ALIAS_EDIT_NAME = "additional name"
 DEBTOR_STREET_EDIT_NAME = "Street"

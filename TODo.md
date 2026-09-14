@@ -30,6 +30,7 @@ the refactor; re-running it is Open item 1.**
 | 9 | P1 refactor: one parser, real LLM boundary, verified creation | all | new `normalization/parsing.py`, `ui_automation/readers.py`, `tests/ui_automation/test_grid_geometry.py`; deleted `verification/{readback,config}.py` and `matching.parse_vat_text`; `entity_resolution/*` read every created record back; `combos.py` verifies the click; `state_machine.py` + `__main__.py` gain logging and `--dry-run` | 0010 (amends 0003, 0004) |
 | 8 | P0 refactor: dependency direction, one selector home, honest states | all | new `ui_automation/screens.py` + `locators.py`; `actions.py` → `orchestrator/steps/{order_editor,invoice_editor,items_grid,pickers,toolbar}.py`; `__main__.py` (exit code), `state_machine.py`, `normalization/models.py` (computed `recomputed_total`, `is_paid`), `ui_automation/{exceptions,vision_grounding,grid_geometry,controls}.py`, all three `config.py` trimmed to tunables | 0009 (amends 0004, 0007, 0008) |
 | 10 | Combo popup crop + settle timing | `entity_resolution/` | `combos.py` (locate and screenshot the popup directly instead of the whole `main_window`; capture-origin threaded into the click math), `config.py` (`COMBO_POPUP_SETTLE_TIMEOUT_SECONDS`); `spikes/uia_probe_combo_region.py`, `probes/probe-13-combo-region-settle-{country,vat}.txt` | 0013 (amends 0006) |
+| 11 | Debtor matching by Customer ID (task 2.3) | `entity_resolution/`, `ui_automation/` | `debtor.py` (five-field match, real identity read-back), `matching.py` (`exact_debtor_matches`), `screens.py` (`DEBTORS_SEARCH_COLUMNS` corrected, `DEBTOR_CUSTOMER_ID_EDIT_NAME`); `tests/entity_resolution/test_matching.py` | 0014 |
 
 Notes worth keeping in one place:
 
@@ -113,8 +114,8 @@ Notes worth keeping in one place:
    `LC_TIME`, which nothing sets, so a German-locale Fakturama
    (`18. Juli 2026`) would fail closed.
 8. **Task-spec gaps** (Order Date, currency comparison, address read-back,
-   Debtor matching by Customer ID, incomplete Debtor/VAT/Payment/Product
-   master-data fields, the stubbed OCR pass) — listed and ranked in
+   incomplete Debtor/VAT/Payment/Product master-data fields, the stubbed OCR
+   pass) — listed and ranked in
    [README.md](README.md#next-steps). Currency is now captured end-to-end
    through extraction/normalization (`RawOrder.currency` →
    `NormalizedOrder.currency`); items 9-11 below are what's still open for
@@ -154,3 +155,19 @@ Notes worth keeping in one place:
     Invoice is unconfirmed. Needs a live VM probe before a write/read-back
     path can be designed, same prerequisite as items 9-11. See
     `.claude/plans/payment-details-normalization.md`.
+13. **The "Select the address" picker could match on Customer ID too.**
+    `orchestrator/steps/pickers.py` still requires exactly one filtered row
+    rather than checking field equality, worked around this way because its
+    grid's Company column is confirmed to render clipped (unlike the Debtors
+    list grid `resolve_debtor` searches, ADR 0014). Now that `resolve_debtor`
+    reliably returns a real Customer ID, the picker could independently
+    verify its single row's identity the same way, for a stronger guarantee
+    than row-count alone.
+14. **Product price is written in Arabic-Indic digits (`١٢٥`) instead of
+    Western digits.** Found live while testing the Debtor-matching fix
+    (2026-09-14), unrelated to it. Not yet investigated — root cause is
+    hypothesized to be the VM's active input locale/keyboard layout
+    affecting how typed keystrokes render, since normalization always
+    produces plain ASCII digit strings. Needs a live VM check of
+    `entity_resolution/product.py`'s price-writing call site before a fix
+    can be designed.

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from fakturama_automation.entity_resolution.matching import exact_text_matches, exact_vat_matches
+from fakturama_automation.entity_resolution.matching import (
+    exact_debtor_matches,
+    exact_text_matches,
+    exact_vat_matches,
+)
 
 
 def _rows(*texts: str) -> list[dict]:
@@ -70,3 +74,44 @@ def test_exact_vat_matches_returns_empty_list_for_no_rows() -> None:
 def test_exact_vat_matches_does_not_match_a_different_rate() -> None:
     rows = _rows("7 %")
     assert exact_vat_matches(rows, Decimal("19")) == []
+
+
+# -- exact_debtor_matches ----------------------------------------------------
+
+_DEBTOR_ROW_COLUMNS = dict(
+    company_column="Company",
+    first_name_column="First Name",
+    last_name_column="Name",
+    zip_column="ZIP",
+    city_column="City",
+)
+
+
+def _debtor_target() -> dict:
+    # The golden sample order (WEB-2026-0714-A17): Northstar Office GmbH /
+    # Marta Klein / 10117 Berlin.
+    return dict(company="Northstar Office GmbH", first_name="Marta", last_name="Klein", zip_code="10117", city="Berlin")
+
+
+def test_exact_debtor_matches_all_five_fields() -> None:
+    row = {"No.": "1001", "Company": "Northstar Office GmbH", "First Name": "Marta", "Name": "Klein", "ZIP": "10117", "City": "Berlin"}
+    assert exact_debtor_matches([row], **_debtor_target(), **_DEBTOR_ROW_COLUMNS) == [row]
+
+
+def test_exact_debtor_matches_excludes_row_with_mismatched_zip() -> None:
+    row = {"No.": "1001", "Company": "Northstar Office GmbH", "First Name": "Marta", "Name": "Klein", "ZIP": "99999", "City": "Berlin"}
+    assert exact_debtor_matches([row], **_debtor_target(), **_DEBTOR_ROW_COLUMNS) == []
+
+
+def test_exact_debtor_matches_excludes_row_with_mismatched_last_name() -> None:
+    row = {"No.": "1001", "Company": "Northstar Office GmbH", "First Name": "Marta", "Name": "Someone Else", "ZIP": "10117", "City": "Berlin"}
+    assert exact_debtor_matches([row], **_debtor_target(), **_DEBTOR_ROW_COLUMNS) == []
+
+
+def test_exact_debtor_matches_returns_empty_list_for_no_rows() -> None:
+    assert exact_debtor_matches([], **_debtor_target(), **_DEBTOR_ROW_COLUMNS) == []
+
+
+def test_exact_debtor_matches_excludes_row_missing_a_column() -> None:
+    row = {"No.": "1001", "Company": "Northstar Office GmbH", "First Name": "Marta", "ZIP": "10117", "City": "Berlin"}
+    assert exact_debtor_matches([row], **_debtor_target(), **_DEBTOR_ROW_COLUMNS) == []

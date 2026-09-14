@@ -25,6 +25,31 @@ def exact_text_matches(
     return [row for row in rows if read(row) == target]
 
 
+def exact_debtor_matches(
+    rows: list[dict[str, str]],
+    *,
+    company: str,
+    first_name: str,
+    last_name: str,
+    zip_code: str,
+    city: str,
+    company_column: str,
+    first_name_column: str,
+    last_name_column: str,
+    zip_column: str,
+    city_column: str,
+) -> list[dict[str, str]]:
+    return [
+        row
+        for row in rows
+        if row.get(company_column, "") == company
+        and row.get(first_name_column, "") == first_name
+        and row.get(last_name_column, "") == last_name
+        and row.get(zip_column, "") == zip_code
+        and row.get(city_column, "") == city
+    ]
+
+
 def exact_vat_matches(
     rows: list[Any],
     vat_percent: Decimal,

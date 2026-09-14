@@ -305,3 +305,49 @@ that needed a fuller write-up have their own ADR under [adr/](adr/).
   untouched: it already uses `controls.type_text` (real keystrokes) for the
   unrelated, documented reason that `SetValue` doesn't persist through Save
   for that one field.
+
+## `entity_resolution/debtor.py::resolve_debtor` — five-field matching and a real Customer ID (2026-09-14)
+
+- **Reproduced the duplicate-Debtor bug, then falsified the leading
+  hypothesis for it.** `resolve_debtor` matched only Company, by strict text
+  equality (`matching.exact_text_matches` against
+  `screens.DEBTORS_SEARCH_COLUMNS = ["Company Name"]`) — already
+  non-compliant with task 2.3's five-field rule regardless of any other bug.
+  Going in, the working theory was that this shared the picker's confirmed
+  Company-column clipping (a real "Northstar Office GmbH" rendering as
+  "thstar Office ..." in the *"Select the address"* dialog,
+  `docs/implementation-notes.md`'s earlier picker section). A live check of
+  the Debtors *list* grid `resolve_debtor` actually searches — a different
+  widget from the picker — found Company did **not** render clipped for the
+  same long name that had previously triggered a duplicate. The clipping
+  theory is confirmed for the picker and ruled out, not just unconfirmed, for
+  this grid; the original duplicate run's exact mechanism was not
+  re-isolated. The fix below is adopted regardless, since the single-field
+  match was independently wrong on task-2.3 grounds either way.
+- **The Debtors list grid's real columns are `No., First Name, Name, Company,
+  ZIP, City`** — the same six as the picker's own grid
+  (`screens.ORDER_SELECT_ADDRESS_SEARCH_COLUMNS`), not the single
+  `"Company Name"` column the code had assumed and never actually verified
+  live. `screens.DEBTORS_SEARCH_COLUMNS` is corrected to this list.
+- **The New Debtor form's Customer ID field is not blank-named.**
+  `screens.DEBTOR_FORM_CUSTOMER_ID_AUTO_ID = "133128"` had no caller and was
+  never confirmed live; `probes/probe-04-fill-create-debitor.txt` shows the
+  control as `child_window(title="Customer ID", auto_id="133128",
+  control_type="Edit")` — it has a real accessible name, unlike this app's
+  session-unstable-auto_id controls (e.g. the pricing-mode combo, the
+  Debtor-attach Image). Replaced with `DEBTOR_CUSTOMER_ID_EDIT_NAME =
+  "Customer ID"`, read back the same way every other named field in this
+  codebase is (`readers.read_field_text`).
+- **`ResolvedEntity.identity` was fabricated, in both branches.**
+  `search_by()` returned `identity=company_name` (the search key) for every
+  match; `create()` returned the same. Neither ever read a value off an
+  actual row or saved record. Now `search_by()` reads the matched row's
+  `"No."` cell; `create()` reads the New Debtor form's own Customer ID field
+  after Save, following the same "read back what was actually saved" pattern
+  `resolver.verify_saved_fields` already uses in this module. `resolve_debtor`'s
+  only caller (`orchestrator/steps/order_editor.py::populate_order_fields`)
+  still discards the return value — this is unused today, but stops being a
+  lie in the meantime.
+- See `docs/adr/0014-debtor-matching-by-customer-id.md` for the decisions
+  (five-field match, not four; Company search key unchanged) and for why the
+  picker (`orchestrator/steps/pickers.py`) is deliberately left as is.

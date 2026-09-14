@@ -125,7 +125,6 @@ If I have 3 more hours, I'll work on the following:
 
 #### Hardening
 
-* **Debtor matching does not follow task 2.3.** It currently relies on Fakturama's search returning exactly one row rather than verifying all five fields → Have `resolve_debtor` return the Customer ID (the `ResolvedEntity` it already builds is discarded by every caller) and match on it, which the Company column's clipping makes impossible today.
 * **Master data is verified from its own saved form, not by re-searching the list.** Task 2.12/3.12 prescribe reopening the picker and finding the new record → Re-search after creation, which additionally proves the record is reachable by the key later lookups use.
 * **`grid_geometry`'s test fixture is synthetic.** It pins the algorithm's contract but not its agreement with Fakturama's real rendering → Commit a real Items-grid screenshot on the next VM session.
 
