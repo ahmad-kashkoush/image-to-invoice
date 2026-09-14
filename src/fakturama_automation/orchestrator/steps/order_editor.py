@@ -31,12 +31,9 @@ def populate_order_fields(
     debtor.resolve_debtor(app, order, client=client, settle_seconds=settle_seconds)
     payment_method.resolve_payment_method(app, order.payment_method, client=client, settle_seconds=settle_seconds)
 
-    # Resolution navigates the Navigation View away, and Eclipse stops
-    # exposing a tab's content to UIA once you leave it - see
-    # controls.reactivate_editor for why this is proved, not assumed.
     main_window = app.main_window()
     cust_ref_edit = _reactivate(main_window, window, "Edit", screens.ORDER_CUST_REF_EDIT_NAME)
-    cust_ref_edit.set_text(order.external_reference)
+    controls.set_text(cust_ref_edit, order.external_reference)
 
     _set_pricing_mode_net(main_window)
 

@@ -16,6 +16,7 @@ from fakturama_automation.ui_automation import screens
 from fakturama_automation.ui_automation.exceptions import (
     AmbiguousControlError,
     ControlNotFoundError,
+    ControlWriteError,
     DialogTimeoutError,
     GridGeometryError,
     GridReadError,
@@ -71,6 +72,7 @@ _UI_DISCOVERY_ERRORS = (
     WindowFocusError,
     GridReadError,
     GridGeometryError,
+    ControlWriteError,
 )
 
 

@@ -7,6 +7,7 @@ from fakturama_automation.ui_automation import waits
 from fakturama_automation.ui_automation.exceptions import (
     AmbiguousControlError,
     ControlNotFoundError,
+    ControlWriteError,
     WindowFocusError,
 )
 
@@ -167,9 +168,12 @@ def set_text(
         try:
             control.set_text(text)
             return
-        except COMError:
+        except COMError as exc:
             if time.monotonic() >= deadline:
-                raise
+                raise ControlWriteError(
+                    f"could not write {text!r} to control within {timeout_seconds}s "
+                    "(Edit stayed disabled)"
+                ) from exc
             time.sleep(poll_interval_seconds)
 
 

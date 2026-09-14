@@ -34,3 +34,13 @@ class GridGeometryError(Exception):
     # wrong-but-plausible coordinate types into the wrong cell exactly as
     # convincingly as into the right one.
     pass
+
+
+class ControlWriteError(Exception):
+    # Found the control but could not write to it within the timeout:
+    # Fakturama briefly disables a field's Edit right after an adjacent field
+    # changes, and set_text is retried through that COMError. An exhausted
+    # retry is a real failure - raised as this codebase's own type (not a raw
+    # COMError, which _UI_DISCOVERY_ERRORS would miss) so it fails closed to
+    # manual review.
+    pass

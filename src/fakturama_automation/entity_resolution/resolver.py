@@ -63,7 +63,7 @@ def search_grid_exact(
         parent, "Pane", name=grid_pane_name, timeout_seconds=timeout_seconds
     )
     label = locators.search_label(parent, timeout_seconds=timeout_seconds)
-    locators.search_edit(label, timeout_seconds=timeout_seconds).set_text(key)
+    controls.set_text(locators.search_edit(label, timeout_seconds=timeout_seconds), key)
     time.sleep(settle_seconds)
 
     image_bytes = vision_grounding.capture_control_image(grid_pane)

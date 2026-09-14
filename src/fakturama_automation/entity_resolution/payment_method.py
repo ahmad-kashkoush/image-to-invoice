@@ -53,7 +53,9 @@ def _create_payment_method(
     controls.focus(main_window)
     controls.find_control(main_window, "Button", name=screens.PAYMENT_NEW_BUTTON_TITLE).click_input()
 
-    controls.find_control(main_window, "Edit", name=screens.PAYMENT_NAME_EDIT_NAME).set_text(payment_method)
+    controls.set_text(
+        controls.find_control(main_window, "Edit", name=screens.PAYMENT_NAME_EDIT_NAME), payment_method
+    )
 
     controls.focus(main_window)
     controls.find_control(main_window, "Button", name=screens.SAVE_BUTTON_TITLE).click_input()

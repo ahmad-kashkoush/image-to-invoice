@@ -65,15 +65,19 @@ def _create_debtor(
         first_name, _, last_name = order.contact_name.partition(" ")
         name_pane = locators.sibling_pane_after_label(main_window, screens.DEBTOR_NAME_ROW_LABEL_NAME)
         first_name_edit, last_name_edit = name_pane.descendants(control_type="Edit")
-        first_name_edit.set_text(first_name)
-        last_name_edit.set_text(last_name)
+        controls.set_text(first_name_edit, first_name)
+        controls.set_text(last_name_edit, last_name)
 
     if order.alias:
-        controls.find_control(main_window, "Edit", name=screens.DEBTOR_ALIAS_EDIT_NAME).set_text(order.alias)
+        controls.set_text(
+            controls.find_control(main_window, "Edit", name=screens.DEBTOR_ALIAS_EDIT_NAME), order.alias
+        )
 
     address = order.billing_address
     if address.street:
-        controls.find_control(main_window, "Edit", name=screens.DEBTOR_STREET_EDIT_NAME).set_text(address.street)
+        controls.set_text(
+            controls.find_control(main_window, "Edit", name=screens.DEBTOR_STREET_EDIT_NAME), address.street
+        )
         time.sleep(settle_seconds)
     if address.postal_code or address.city:
         # Both Edits are blank-named siblings under the "ZIP - City"

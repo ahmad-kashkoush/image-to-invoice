@@ -272,3 +272,36 @@ that needed a fuller write-up have their own ADR under [adr/](adr/).
   `_click_and_confirm`'s post-selection-confirm read — this probe measured
   neither. A new `COMBO_POPUP_SETTLE_TIMEOUT_SECONDS` (1.5s, ADR 0013
   Decision 5) governs only the new poll-until-stable loop instead.
+
+## `controls.set_text`'s unwrapped timeout, and its inconsistent use (2026-09-14)
+
+- **The retry wrapper's own failure path defeated the reason it exists.**
+  `controls.set_text` retries `control.set_text(text)` through a transient
+  `COMError` — Fakturama briefly disables a field's Edit right after an
+  adjacent field changes — but on an exhausted retry it did a bare `raise`
+  of the caught `COMError` itself. `COMError` was never in
+  `state_machine._UI_DISCOVERY_ERRORS`, so this crashed the whole process
+  with a raw traceback instead of routing to `ManualReviewRequired` — even
+  at the two call sites (debtor ZIP/City) that already used the wrapper.
+  Same shape as the `FakturamaApp.connect()` bug fixed 2026-09-12: a raw
+  pywinauto exception that matches none of `_UI_DISCOVERY_ERRORS` skips the
+  fail-closed path entirely. Fixed by adding
+  `ui_automation.exceptions.ControlWriteError` (raised `from` the caught
+  `COMError` on timeout) and adding it to `_UI_DISCOVERY_ERRORS`, mirroring
+  every other exception in that tuple.
+- **The wrapper itself was applied to only 2 of 10 call sites, with no
+  record of why.** Grepping every `.set_text(` call in `orchestrator/steps/`
+  and `entity_resolution/` found ZIP and City (`debtor.py`) going through
+  `controls.set_text`, and eight others — Cust. Ref.
+  (`order_editor.py`), both picker/resolver search boxes (`pickers.py`,
+  `resolver.py`), Payment Method Name, VAT Name, and Debtor First/Last
+  Name/Alias/Street — calling raw pywinauto `.set_text()` with no retry
+  protection at all. Nothing in this file or the ADRs explained the ZIP/City
+  scoping; it read as an accident of whichever section happened to write
+  those two fields, not a deliberate boundary. Since the retry loop only
+  ever activates on an actual `COMError`, applying the wrapper is a no-op on
+  the happy path — all eight were switched to `controls.set_text` rather
+  than justifying each site individually. The Debtor Company field is
+  untouched: it already uses `controls.type_text` (real keystrokes) for the
+  unrelated, documented reason that `SetValue` doesn't persist through Save
+  for that one field.

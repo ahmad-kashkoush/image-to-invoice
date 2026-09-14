@@ -75,7 +75,10 @@ Notes worth keeping in one place:
    value in a form the selecting predicate rejects, every product creation
    fails closed, and the fix is to widen the comparison rather than remove
    the check. `--dry-run` covers the extraction/normalization half without a
-   VM at all.
+   VM at all. All `set_text()` field writes now go through
+   `controls.set_text` and fail closed to `ManualReviewRequired` via
+   `ControlWriteError` on an exhausted retry, rather than crashing on a raw
+   `COMError` (2026-09-14).
 2. **`Data > Documents` is unprobed** — the one screen with no VM probe at
    all. Tasks 4.5/5.5 prescribe it as an independent second check on the
    saved Order and Invoice; verification currently reads the open editor's

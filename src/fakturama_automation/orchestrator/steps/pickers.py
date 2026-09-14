@@ -124,7 +124,7 @@ def _pick_single_row_in_dialog(
     timeout_seconds: float = config.DIALOG_TIMEOUT_SECONDS,
 ) -> None:
     label = locators.search_label(dialog, timeout_seconds=timeout_seconds)
-    locators.search_edit(label, timeout_seconds=timeout_seconds).set_text(key)
+    controls.set_text(locators.search_edit(label, timeout_seconds=timeout_seconds), key)
     time.sleep(settle_seconds)
 
     if not controls.window_still_exists(dialog):

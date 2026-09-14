@@ -54,7 +54,9 @@ def _create_vat_rate(
     controls.focus(main_window)
     controls.find_control(main_window, "Button", name=screens.VAT_NEW_BUTTON_TITLE).click_input()
 
-    controls.find_control(main_window, "Edit", name=screens.VAT_NAME_EDIT_NAME).set_text(f"{vat_percent}%")
+    controls.set_text(
+        controls.find_control(main_window, "Edit", name=screens.VAT_NAME_EDIT_NAME), f"{vat_percent}%"
+    )
 
     value_edit = controls.find_control(main_window, "Edit", name=screens.VAT_VALUE_EDIT_NAME)
     controls.replace_text(value_edit, str(vat_percent))
