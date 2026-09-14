@@ -9,6 +9,8 @@ from fakturama_automation.normalization import config, parsing
 from fakturama_automation.normalization.models import NormalizedAddress, NormalizedLineItem, NormalizedOrder
 from fakturama_automation.normalization.validators import (
     check_confidence,
+    check_line_item_completeness,
+    check_line_item_ranges,
     check_line_total,
     check_required_fields,
 )
@@ -35,6 +37,7 @@ def normalize_order(
         payment_method=_trim(raw_order.payment_method),
         payment_status=_trim(raw_order.payment_status),
         payment_date=_parse_date(raw_order.payment_date, "payment_date", failures),
+        currency=_canonicalize_currency(raw_order.currency, failures),
         line_items=[
             _normalize_line_item(item, index, failures) for index, item in enumerate(raw_order.line_items)
         ],
@@ -52,6 +55,17 @@ def normalize_order(
                 f"line {index + 1} ({item.sku or '?'}): recomputed total {item.recomputed_total} "
                 f"does not match source total {item.source_line_total}"
             )
+
+    for line_number in check_line_item_completeness(raw_order):
+        item = order.line_items[line_number - 1]
+        failures.append(
+            f"line {line_number} ({item.sku or '?'}): price is unreadable "
+            "(both unit_net_price and source_line_total missing)"
+        )
+
+    for index, item in enumerate(order.line_items):
+        for problem in check_line_item_ranges(item):
+            failures.append(f"line {index + 1} ({item.sku or '?'}): {problem}")
 
     if not check_confidence(raw_order, confidence_threshold):
         failures.append(f"one or more extracted fields fall below the confidence threshold ({confidence_threshold})")
@@ -110,6 +124,17 @@ def _parse_money(value: str | None, field_name: str, failures: list[str]) -> Dec
         failures.append(f"{field_name}: unparseable number '{text}'")
         return Decimal(0)
     return parsed.quantize(config.MONEY_QUANTIZE, rounding=ROUND_HALF_UP)
+
+
+def _canonicalize_currency(value: str | None, failures: list[str]) -> str:
+    text = _trim(value)
+    if not text:
+        return ""
+    code = parsing.canonicalize_currency(text)
+    if code is None:
+        failures.append(f"currency: ambiguous or unrecognized currency '{text}'")
+        return ""
+    return code
 
 
 def _parse_percent(value: str | None, field_name: str, failures: list[str]) -> Decimal:

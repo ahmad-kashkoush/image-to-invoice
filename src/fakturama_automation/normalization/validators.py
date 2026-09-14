@@ -33,12 +33,35 @@ def check_line_total(item: NormalizedLineItem, tolerance: Decimal) -> bool:
     return abs(recompute_line_total(item) - item.source_line_total) <= tolerance
 
 
+def check_line_item_ranges(item: NormalizedLineItem) -> list[str]:
+    problems: list[str] = []
+    if not (Decimal(0) <= item.discount <= _HUNDRED):
+        problems.append(f"discount {item.discount} is out of range (0-100)")
+    if not (Decimal(0) <= item.vat_percent <= _HUNDRED):
+        problems.append(f"vat_percent {item.vat_percent} is out of range (0-100)")
+    if item.unit_net_price < Decimal(0):
+        problems.append(f"unit_net_price {item.unit_net_price} is negative")
+    return problems
+
+
 def check_required_fields(order: NormalizedOrder) -> bool:
     if not order.debtor_company_name:
         return False
     if not order.line_items:
         return False
     return all(item.sku and item.quantity > 0 for item in order.line_items)
+
+
+def _is_blank(value: str | None) -> bool:
+    return value is None or not value.strip()
+
+
+def check_line_item_completeness(raw_order: RawOrder) -> list[int]:
+    return [
+        index + 1
+        for index, item in enumerate(raw_order.line_items)
+        if _is_blank(item.unit_net_price) and _is_blank(item.source_line_total)
+    ]
 
 
 def _extracted_confidence_shortfall(

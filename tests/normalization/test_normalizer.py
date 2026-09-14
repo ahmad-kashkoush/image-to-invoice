@@ -31,6 +31,7 @@ ORDER_CONF = {
     "payment_method": HIGH_CONF,
     "payment_status": HIGH_CONF,
     "payment_date": HIGH_CONF,
+    "currency": HIGH_CONF,
 }
 
 
