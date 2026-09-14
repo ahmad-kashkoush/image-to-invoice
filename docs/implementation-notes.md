@@ -230,3 +230,45 @@ that needed a fuller write-up have their own ADR under [adr/](adr/).
   date row, and it's unconfirmed whether Fakturama keeps bank details on the
   Debtor record or the Invoice. Tracked as a new `TODo.md` Open item; needs a
   live-VM probe before a write/read-back path can be designed.
+
+## Combo popup crop and settle timing (2026-09-14)
+
+- **The task's "three combo types" premise was half wrong, and checking it
+  first mattered.** Only Country (Debtor form) and VAT (Product form)
+  actually go through `combos.py`. `payment_method.py`'s own create form has
+  no combo — Name is its only field. The combo that *does* select a payment
+  method (Invoice editor's `apply_payment`) already works via plain
+  `combo.select(...)`, because it's a normal UIA-selectable combo, not one
+  of ADR 0006's detached-popup ones. Probing it would have measured the
+  wrong thing.
+- **`spikes/uia_probe_combo_region.py` found the popup by diffing
+  `Desktop(backend="uia").windows()`, not `main_window.descendants()`** —
+  ADR 0006 already established the popup isn't in `main_window`'s own tree;
+  this reconfirmed that live and located it the other way ADR 0006 had
+  named but set aside as an unconfirmed extra dependency. 5/5 repeats for
+  both combo types found it at an identical relative rectangle, contained
+  in `main_window`'s own rectangle, with a real click-to-stable time of
+  0.36–0.46s — full data is in `probes/probe-13-combo-region-settle-
+  {country,vat}.txt`.
+- **The located window's `class_name` reads `"SysShadow"` — that's a red
+  herring, not a bug.** It's Windows' drop-shadow decoration class, and it
+  briefly looked like the probe had found the shadow effect instead of the
+  actual popup. The saved `_direct.png` screenshots (a capture of exactly
+  this window) settled it by eye: full, correct option text, matching the
+  same region of the whole-window screenshot. Whatever assigns that class
+  name here, the pixels are the real popup.
+- **The bbox-origin bug this would have shipped without the probe's
+  screenshots to check against:** `ComboOption.bbox` is relative to
+  whichever image got captured. Once the popup (not `main_window`) is what
+  gets screenshotted, converting its bbox to a screen point using
+  `main_window.rectangle()`'s top-left — the old, only-ever-correct-before-
+  now assumption — silently computes the wrong click point. Fixed by
+  threading the actual capture origin through `_read_open_combo_options` →
+  `_click_and_confirm` (ADR 0013, Decision 4) instead of hardcoding
+  `main_window`.
+- **`SEARCH_SETTLE_SECONDS`'s default was deliberately left alone.** The
+  task asked for `settle_seconds`'s default to reflect the measured timing,
+  but that config value is shared with grid-search settling and with
+  `_click_and_confirm`'s post-selection-confirm read — this probe measured
+  neither. A new `COMBO_POPUP_SETTLE_TIMEOUT_SECONDS` (1.5s, ADR 0013
+  Decision 5) governs only the new poll-until-stable loop instead.

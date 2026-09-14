@@ -29,6 +29,7 @@ the refactor; re-running it is Open item 1.**
 | 7b | `SAVE_AND_VERIFY_INVOICE` (tenth state) | `orchestrator/`, `verification/` | `state_machine.py`, `actions.py::save_invoice`, `invoice_verification.py::verify_invoice_saved`, `payment_verification.py::payment_problems` | 0008 |
 | 9 | P1 refactor: one parser, real LLM boundary, verified creation | all | new `normalization/parsing.py`, `ui_automation/readers.py`, `tests/ui_automation/test_grid_geometry.py`; deleted `verification/{readback,config}.py` and `matching.parse_vat_text`; `entity_resolution/*` read every created record back; `combos.py` verifies the click; `state_machine.py` + `__main__.py` gain logging and `--dry-run` | 0010 (amends 0003, 0004) |
 | 8 | P0 refactor: dependency direction, one selector home, honest states | all | new `ui_automation/screens.py` + `locators.py`; `actions.py` → `orchestrator/steps/{order_editor,invoice_editor,items_grid,pickers,toolbar}.py`; `__main__.py` (exit code), `state_machine.py`, `normalization/models.py` (computed `recomputed_total`, `is_paid`), `ui_automation/{exceptions,vision_grounding,grid_geometry,controls}.py`, all three `config.py` trimmed to tunables | 0009 (amends 0004, 0007, 0008) |
+| 10 | Combo popup crop + settle timing | `entity_resolution/` | `combos.py` (locate and screenshot the popup directly instead of the whole `main_window`; capture-origin threaded into the click math), `config.py` (`COMBO_POPUP_SETTLE_TIMEOUT_SECONDS`); `spikes/uia_probe_combo_region.py`, `probes/probe-13-combo-region-settle-{country,vat}.txt` | 0013 (amends 0006) |
 
 Notes worth keeping in one place:
 
@@ -100,27 +101,22 @@ Notes worth keeping in one place:
    append-only `out/manual_review_queue.jsonl` proves insufficient once a
    human or tool actually processes entries — there's no claim/delete
    workflow today. ADR 0005's Consequences.
-6. **VM verification for `combos.py`'s two coordinate-click assumptions**:
-   that screenshot pixels map 1:1 to screen coordinates (no DPI scaling), and
-   that a dropdown renders inside `main_window`'s rectangle. ADR 0006. The
-   first no longer fails silently — the selection is read back (ADR 0010) —
-   but the assumption itself is still unverified.
-7. **Country-code → name mapping** for the Debtor Country combo: if
+6. **Country-code → name mapping** for the Debtor Country combo: if
    Fakturama's options are full names ("Germany") while normalized data
    holds an ISO code ("DE"), `select_exact_option` fails closed to manual
    review rather than guessing. ADR 0006.
-8. **Localization** generally — accepting other number, date, and currency
+7. **Localization** generally — accepting other number, date, and currency
    formats. `comparisons.parse_ui_date`'s month-name forms resolve through
    `LC_TIME`, which nothing sets, so a German-locale Fakturama
    (`18. Juli 2026`) would fail closed.
-9. **Task-spec gaps** (Order Date, currency comparison, address read-back,
+8. **Task-spec gaps** (Order Date, currency comparison, address read-back,
    Debtor matching by Customer ID, incomplete Debtor/VAT/Payment/Product
    master-data fields, the stubbed OCR pass) — listed and ranked in
    [README.md](README.md#next-steps). Currency is now captured end-to-end
    through extraction/normalization (`RawOrder.currency` →
-   `NormalizedOrder.currency`); items 10-12 below are what's still open for
+   `NormalizedOrder.currency`); items 9-11 below are what's still open for
    it and the other two.
-10. **Order Date is extracted and normalized but never written or verified.**
+9. **Order Date is extracted and normalized but never written or verified.**
     `orchestrator/steps/order_editor.py::populate_order_fields` writes only
     Cust. Ref. today. `comparisons.date_equals` already exists for the
     verify side (`verification/comparisons.py`) but is unused anywhere — it
@@ -131,15 +127,15 @@ Notes worth keeping in one place:
     combo two siblings later — the date field itself, if directly
     addressable, is hypothesized at one sibling closer but never probed).
     See `.claude/plans/bug-fixes-currency-connect.md`.
-11. **Currency has no UI-side verification.** Extraction/normalization
-    capture it (see item 9); `verification/comparisons.py` has no
+10. **Currency has no UI-side verification.** Extraction/normalization
+    capture it (see item 8); `verification/comparisons.py` has no
     `currency_equals`, and nothing reads a currency control off the order
     editor to compare it. Needs a live VM check first — it isn't confirmed
     Fakturama's order editor even exposes currency as a per-order control
     rather than a fixed per-installation setting; that decides whether this
     is a real check or a no-op. See
     `.claude/plans/bug-fixes-currency-connect.md`.
-12. **Addresses are normalized but never verified.** `NormalizedOrder.
+11. **Addresses are normalized but never verified.** `NormalizedOrder.
     billing_address`/`delivery_address` are fully populated; nothing in
     `order_verification.py` compares them. `screens.py`'s only address-
     adjacent selector is the `"Addresses"` label used to locate the Debtor-
@@ -147,11 +143,11 @@ Notes worth keeping in one place:
     learn whether the Order editor shows address as one free-text block or
     discrete fields before a comparator can be written. See
     `.claude/plans/bug-fixes-currency-connect.md`.
-13. **`payment_details` has no UI write or verification.** It's now carried
+12. **`payment_details` has no UI write or verification.** It's now carried
     through normalization (ADR 0011, no longer silently dropped) but
     `ui_automation/locators.py::payment_details_pane` only exposes the
     payment-method combo and date row — nothing addresses a bank-details
     field. Whether Fakturama keeps an IBAN/BIC on the Debtor record or the
     Invoice is unconfirmed. Needs a live VM probe before a write/read-back
-    path can be designed, same prerequisite as items 10-12. See
+    path can be designed, same prerequisite as items 9-11. See
     `.claude/plans/payment-details-normalization.md`.
