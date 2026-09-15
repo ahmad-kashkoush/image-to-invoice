@@ -169,13 +169,18 @@ Notes worth keeping in one place:
     reliably returns a real Customer ID, the picker could independently
     verify its single row's identity the same way, for a stronger guarantee
     than row-count alone.
-17. ~~**Fakturama formats money with an unexpected locale.**~~ **Resolved
-    2026-09-15** (ADR 0016). The concatenation bug is fixed by
-    `controls.replace_text`; the separator question is answered - the typed
+17. **Fakturama's money locale — settled, except the original symptom never
+    reproduced.** (ADR 0016.) The concatenation bug is fixed by
+    `controls.replace_text`. The separator question is answered: the typed
     separator must follow the surface, and the surfaces disagree with each
-    other (form Edits parse `,`, the Items grid parses `.`); and the gross
-    price is now in `_create_product`'s `verify_saved_fields`, so a
-    mis-parsed price fails closed where it happens. Saved Products now carry
-    250.00 and 40.00 net, verified in the database. Nothing here is open;
-    `spikes/uia_probe_digit_shaping.py` remains for the Arabic-digit
-    rendering if it ever recurs.
+    other — form Edits parse `,`, the Items grid parses `.`. The gross price
+    is now in `_create_product`'s `verify_saved_fields`, so a mis-parsed
+    price fails closed where it happens, and saved Products carry 250.00 and
+    40.00 net, verified in the database.
+
+    What is *not* resolved is this item's original claim. No Arabic-Indic
+    digits or Arabic currency symbol appeared in any of the seventeen live
+    runs on 2026-09-15 — money rendered German in form fields (`0,00 €`) and
+    US in the grid (`45,000.00 €`). The report is not disproven, just not
+    reproducing, so nothing was done about it and
+    `spikes/uia_probe_digit_shaping.py` is kept for if it returns.

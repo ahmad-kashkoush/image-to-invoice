@@ -97,6 +97,9 @@ place checked, not the fourth.
   `verify_payment_applied`, but an Order on a profile whose standard Payment
   is something other than the order's would carry the wrong term silently.
   Writing and verifying it on the Order editor is open work.
+  **Addressed by [0019](0019-order-payment-term-via-the-standard.md)**, which
+  found there is no such control on the Order editor at all and swaps the
+  profile standard around Order creation instead.
 
 - **`entity_resolution` still never closes the editors it opens.** A
   clean-profile run finishes with eight editor tabs. It was suspected here
