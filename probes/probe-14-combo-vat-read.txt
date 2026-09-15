@@ -1,0 +1,14 @@
+﻿combo 'VAT' rect=(L532, T500, R593, B528) 61x28
+combo current value: '19%'
+
+_locate_open_popup: found handle=1116510 rect=(L532, T528, R598, B555) 66x27
+
+=== A. popup crop (what combos.py does today, ADR 0013) ===
+    captured (66, 27) -> probes\probe_combo_vat_read_output\a_popup_crop.png
+    vision read:
+[] (empty - this is the live failure)
+
+=== B. whole main_window (the ADR 0006 behaviour it replaced) ===
+    captured (1938, 1048) -> probes\probe_combo_vat_read_output\b_whole_window.png
+    vision read:
+        '19%'  bbox=(420, 410, 451, 20)

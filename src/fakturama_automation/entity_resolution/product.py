@@ -72,7 +72,13 @@ def _create_product(
             main_window, screens.PRODUCT_PRICE_GROSS_LABEL_NAME
         )
         price_edit = price_pane.descendants(control_type="Edit")[0]
-        controls.type_text(price_edit, str(gross_from_net(item.unit_net_price, item.vat_percent)))
+        # replace_text, not type_text: this field is pre-filled with the
+        # currency-formatted default 0.00, and type_text inserts at the caret.
+        # Live (2026-09-14), typing "297.50" in front of that default left
+        # "297.500,00" in the field, which Fakturama parsed as 297500.00 - the
+        # price 1000x too high, and silent, since verify_saved_fields below
+        # only checks the SKU.
+        controls.replace_text(price_edit, str(gross_from_net(item.unit_net_price, item.vat_percent)))
 
     # Selected by reading the combo's real, currently-open options and
     # clicking the matching one (combos.select_vat_option) - never a

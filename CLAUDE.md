@@ -122,9 +122,13 @@ param — a sanctioned exception, not "UI-fake").
 ## Platform note
 
 This automates a Windows desktop app (Fakturama) via `pywinauto`'s `uia`
-backend inside a Windows 11 ARM VM — see `README.md`'s Platform/VM Setup
-sections. `pywinauto` will not import on macOS/Linux, so any module that
-imports it (`ui_automation/`, and anything that transitively imports it)
-cannot be unit tested outside the VM. Extraction and normalization have no
-such dependency and are developed/tested cross-platform by design (see
-`README.md`'s "Suggested build order").
+backend on Windows - see `README.md`'s Platform/VM Setup sections. The
+machine it is actually developed and run on is Windows 10 Pro x64, with
+Fakturama 2.2.0 installed under `C:\Program Files\Fakturama2` and its
+workspace at `D:\Projects\fakturama-data` - not the Windows 11 ARM VM the
+docs originally described. `pywinauto` will not import on macOS/Linux, so
+any module that imports it (`ui_automation/`, and anything that
+transitively imports it) cannot be unit tested off this machine.
+Extraction and normalization have no such dependency and are
+developed/tested cross-platform by design (see `README.md`'s "Suggested
+build order").

@@ -351,3 +351,65 @@ that needed a fuller write-up have their own ADR under [adr/](adr/).
 - See `docs/adr/0014-debtor-matching-by-customer-id.md` for the decisions
   (five-field match, not four; Company search key unchanged) and for why the
   picker (`orchestrator/steps/pickers.py`) is deliberately left as is.
+
+## First post-refactor live run — three blockers before `DONE` (2026-09-15)
+
+The first live run of the golden sample since 2026-09-06 (TODo Open item 1).
+It never reached `DONE`; it stopped three times, for three unrelated reasons.
+Recorded here because two of them are regressions introduced by changes that
+were reasoned about on paper and never run.
+
+- **The DPI explanation in `combos.py`'s failure message is wrong.** That
+  message blames "screenshot pixels may not map 1:1 to screen coordinates
+  under DPI scaling". They do map 1:1. The display is at 125%, and a plain
+  `python.exe` is DPI-unaware — but `pywinauto` calls `SetProcessDpiAwareness`
+  at import (`win32functions.py:733-739`), so every process that imports it,
+  including the orchestrator, is per-monitor aware. Measured live on the
+  Fakturama window: `rectangle()` = 1938x1048, `capture_as_image()` =
+  1938x1048. The message should not be read as a diagnosis.
+
+- **A freshly created workspace cannot open an Order at all.** Deleting the
+  workspace directory and letting Fakturama recreate it leaves no default
+  Shipping, and `Data > Shippings` starts empty. Clicking "Create: New Order"
+  then raises a modal `Error` — "No default value found for Shippings. Please
+  set one from list!" — and no Order editor opens, so `OPEN_ORDER` fails with
+  `no Pane control named 'New Order' found within 5.0s`. The modal is an SWT
+  shell that is a *child* of the main window, so it is invisible to
+  `app.top_level_window_by_title` (which enumerates top-level windows) and
+  nothing in the pipeline dismisses or reports it. Nothing in `src/` handles
+  Shipping at all — `entity_resolution` covers Debtor, Product, VAT rate and
+  Payment Method only. A default Shipping is therefore a **profile
+  precondition**, not something a run can create; the 2026-09-06 profile had
+  one, which is why this never surfaced before.
+
+- **The combo popup crop (ADR 0013) breaks small popups.** Reproduced with
+  `spikes/uia_probe_combo_vat_read.py`
+  (`probes/probe-14-combo-vat-read.txt`). The Product form's VAT combo, with
+  a single `19%` option, opens a popup that `_locate_open_popup` finds
+  correctly — rect `(532,528)-(598,555)`, directly under the combo at
+  `(532,500)-(593,528)`, so the region and the 1:1 mapping are both right.
+  But the crop is **66x27 px**, and the vision read of it returns `[]`, which
+  `select_vat_option` fails closed on: `no unique VAT option matching 19%;
+  options were []`. The whole-window capture ADR 0013 replaced *does* return
+  `'19%'` from the same screen — but with `bbox=(420, 410, 451, 20)`, while
+  the option really sits at `(541, 537, 66, 27)` in image coordinates: ~130px
+  too high and 7x too wide. Clicking that lands in the Description field.
+  So **neither capture mode is correct**: the crop is too small for the model
+  to read, and the whole window is too large for it to ground accurately.
+  That single fact also explains the 2026-09-14 `Germany`/`Ghana` stop — the
+  same bad grounding, on the run where the popup was not found and the code
+  fell back to the whole window. The fix is not to pick one of the two; it is
+  to stop grounding combo options by vision bbox when the popup is a real UIA
+  window whose items can be selected directly, or failing that to crop with
+  enough surrounding context to read *and* convert coordinates from the crop.
+
+- **The product gross price is still wrong, now by 100x instead of 1000x, and
+  still silent.** `replace_text` (uncommitted, 2026-09-14) correctly stopped
+  the concatenation — the field is cleared first now. But it types
+  `str(Decimal)`, i.e. `"297.50"`, into a field Fakturama formats and parses
+  as **de-DE**, where `.` is the thousands separator. Live result:
+  `29.750,00 €` for a product whose gross is `297.50`. This answers the
+  question TODo item 14 left open — the typed decimal separator *must* follow
+  the field's locale. It is silent because `_create_product`'s
+  `verify_saved_fields` checks only the SKU; the gross price still needs to
+  be in that list so a mis-parsed price fails closed.
