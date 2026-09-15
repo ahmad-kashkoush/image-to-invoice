@@ -10,8 +10,6 @@ APP_TITLE_RE = r"^Fakturama - "
 SAVE_BUTTON_TITLE = "Save the current contents"
 SEARCH_LABEL_NAME = "Search:"
 
-LIST_EDITOR_TAB_AUTO_ID = "525638"
-
 # -- Navigation View: the entity list screens --------------------------------
 DEBTORS_NAV_NAME = "Debtors"
 DEBTORS_GRID_PANE_NAME = "Debtors"
@@ -27,6 +25,48 @@ VATS_GRID_PANE_NAME = "VATs"
 # Mirrors the create form's field labels; not independently probed (the
 # rows are UIA-invisible like every other entity's).
 VATS_SEARCH_COLUMNS = ["Name", "Value"]
+
+# -- Navigation View: Data > Documents ---------------------------------------
+# The saved Order/Invoice list, and the one list screen that does not follow
+# the triple above. Two things are different (probes/probe-15-documents-list.txt,
+# probes/probe_documents_output/):
+#
+#  - Pane 'Documents' holds a document-type Tree as well as the grid, so it
+#    cannot be captured whole - see locators.documents_grid_pane.
+#  - That tree *scopes the search box*. Typing an invoice number while Orders
+#    is selected returns nothing (captured: documents-Orders-INV000002-rows.png
+#    is empty, documents-Invoices-INV000002-rows.png has the row), so the node
+#    has to be selected before searching. It also means a search can never
+#    return a document of the wrong type.
+DOCUMENTS_NAV_NAME = "Documents"
+DOCUMENTS_GRID_PANE_NAME = "Documents"
+DOCUMENTS_ORDERS_TREE_ITEM = "Orders"
+DOCUMENTS_INVOICES_TREE_ITEM = "Invoices"
+
+DOCUMENTS_COL_NUMBER = "Document"
+DOCUMENTS_COL_DATE = "Date"
+DOCUMENTS_COL_CUSTOMER_REF = "Cust.Ref."
+DOCUMENTS_COL_STATE = "State"
+DOCUMENTS_COL_TOTAL = "Total"
+# A subset of what the grid renders - the full order is an unnamed icon
+# column, Document, Date, Name, Cust.Ref., State, Total, Printed, and a
+# trailing filler. Name and Printed are not read: nothing compares them, and
+# every column read is a column whose clipping has to be dealt with.
+DOCUMENTS_READ_COLUMNS = [
+    DOCUMENTS_COL_NUMBER,
+    DOCUMENTS_COL_DATE,
+    DOCUMENTS_COL_CUSTOMER_REF,
+    DOCUMENTS_COL_STATE,
+    DOCUMENTS_COL_TOTAL,
+]
+
+# What the State cell renders. Both confirmed live 2026-09-15: every Order row
+# reads "open", every paid Invoice row reads "paid". The word an *unpaid*
+# Invoice shows has never been seen - no workspace probed has one - so
+# verification checks "not paid" for that case rather than guessing a third
+# constant into existence.
+DOCUMENT_STATE_OPEN = "open"
+DOCUMENT_STATE_PAID = "paid"
 
 # Fakturama's own nav label, not "Payment methods".
 PAYMENT_METHODS_NAV_NAME = "terms of payment"
@@ -130,10 +170,6 @@ ITEMS_GRID_RENDERED_COLUMNS = [
     ITEMS_COL_DISCOUNT,
     ITEMS_COL_LINE_TOTAL,
 ]
-
-# Renders blank, so row separators can be scanned down it without mistaking
-# cell content for a grid line.
-ITEMS_GRID_BLANK_COLUMN = ITEMS_COL_PICTURE
 
 
 def _items_columns(*names: str) -> list[str]:

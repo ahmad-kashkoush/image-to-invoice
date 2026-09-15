@@ -9,12 +9,14 @@ from fakturama_automation.entity_resolution import config
 from fakturama_automation.entity_resolution.models import ResolvedEntity
 from fakturama_automation.error_handling.exceptions import ManualReviewRequired
 from fakturama_automation.normalization.parsing import parse_money_text, parse_percent_text
-from fakturama_automation.ui_automation import (
-    controls,
-    grid_columns,
-    locators,
-    readers,
-    vision_grounding,
+from fakturama_automation.ui_automation import readers
+# Re-exported, not re-implemented: the four per-entity resolvers here call
+# `resolver.search_grid_exact`, and it now lives a layer down so `verification`
+# can read Data > Documents with the same mechanism without importing this
+# package (they are peers - see Doc/adr/0009).
+from fakturama_automation.ui_automation.list_grids import (  # noqa: F401
+    open_list_screen,
+    search_grid_exact,
 )
 
 logger = logging.getLogger(__name__)
@@ -81,78 +83,6 @@ def resolve_exact_or_create(
     raise ManualReviewRequired(
         step, f"{len(matches)} exact matches for {entity}; expected at most one"
     )
-
-
-def search_grid_exact(
-    parent: Any,
-    *,
-    grid_pane_name: str,
-    key: str,
-    columns: list[str],
-    vision_client: Any = None,
-    settle_seconds: float = config.SEARCH_SETTLE_SECONDS,
-    timeout_seconds: float = config.DIALOG_TIMEOUT_SECONDS,
-) -> list[dict[str, str]]:
-    grid_pane = controls.find_control(
-        parent, "Pane", name=grid_pane_name, timeout_seconds=timeout_seconds
-    )
-    label = locators.search_label(parent, timeout_seconds=timeout_seconds)
-    controls.set_text(locators.search_edit(label, timeout_seconds=timeout_seconds), key)
-    time.sleep(settle_seconds)
-
-    def read_rows() -> list[dict[str, str]]:
-        controls.focus_foreground(parent)
-        controls.move_pointer_away(parent)
-        return vision_grounding.read_grid_rows(
-            vision_grounding.capture_control_image(grid_pane), columns=columns, client=vision_client
-        )
-
-    rows = read_rows()
-    # A column too narrow for its content renders clipped ("Northstar
-    # Offic..."), and every comparison built on these rows is exact equality,
-    # so a clipped cell can never match and the caller creates a duplicate
-    # instead. Widths are persisted per profile, so this depends on saved UI
-    # layout rather than on the data - it is why the same order matched on one
-    # profile and duplicated on another. Widen once and re-read; if it is
-    # still clipped the rows are returned as they are and the exact-match
-    # comparison fails closed, which is the pre-existing behaviour.
-    clipped = _clipped_columns(rows, columns)
-    if clipped:
-        # Re-found, not reused: typing into the search box rebuilds the grid's
-        # widget tree as it filters (the same thing
-        # orchestrator/steps/pickers.py re-finds its dialog for), and a stale
-        # pane captures as nothing, which measures as no columns and silently
-        # declines to widen. That is what made the widen a no-op live.
-        grid_pane = controls.find_control(
-            parent, "Pane", name=grid_pane_name, timeout_seconds=timeout_seconds
-        )
-        # Once, not once per clipped column: a drag here widens every column
-        # at the same time, so a second drag only eats the space the far
-        # columns need to stay on screen.
-        widened = grid_columns.widen_column(
-            grid_pane,
-            column_index=columns.index(clipped[0]),
-            by_pixels=config.COLUMN_WIDEN_PIXELS,
-            expected_columns=len(columns),
-        )
-        logger.info(
-            "%s column(s) render clipped %s - widening %s",
-            len(clipped), clipped, "succeeded" if widened else "FAILED (layout not measurable)",
-        )
-        if widened:
-            controls.focus_foreground(parent)
-            controls.move_pointer_away(parent)
-            time.sleep(settle_seconds)
-            rows = read_rows()
-    return rows
-
-
-def _clipped_columns(rows: list[dict[str, str]], columns: list[str]) -> list[str]:
-    return [
-        column
-        for column in columns
-        if any(grid_columns.is_clipped(row.get(column, "")) for row in rows)
-    ]
 
 
 def verify_saved_fields(

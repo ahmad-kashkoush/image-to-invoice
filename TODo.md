@@ -18,7 +18,10 @@ and linked Invoice saved and verified, exit code 0, no manual-review entry.
 The database afterwards holds exactly one Northstar contact and two Products
 at their correct net prices - no duplicates, no mis-parsed money. The Order's
 own payment term is also written now (ADR 0019), verified against a profile
-whose standard Payment deliberately differed from the order's.
+whose standard Payment deliberately differed from the order's. Tasks 4.5/5.5
+are implemented as of ADR 0020: both saves are now confirmed from
+`Data > Documents` as well as from the open editor, live-checked against a
+matching case and five deliberately mismatched ones.
 
 ## Done
 
@@ -41,6 +44,8 @@ whose standard Payment deliberately differed from the order's.
 | 14 | Widen clipped list-grid columns before matching | `ui_automation/`, `entity_resolution/` | new `grid_columns.py` (pixel column measurement, `SIZEWE` handle probe, budgeted drag), `resolver.py::search_grid_exact` (detect clipping, widen once, re-read), `config.py` (`COLUMN_WIDEN_PIXELS`) | 0017 (completes 0014) |
 | 15 | Clean-profile ordering + app-error reporting | `orchestrator/`, `ui_automation/` | `order_editor.py::open_new_order` (resolves the payment term before the editor is created), `state_machine.py` (`_with_modal_text`), `readers.py` (`app_error_text`: child-shell modals and the Eclipse Error view); `README.md` (default-Shipping precondition) | 0018 |
 | 16 | Order payment term + stale-pane widen fix | `entity_resolution/`, `orchestrator/`, `ui_automation/` | `payment_method.py` (`standard_payment_name`, `make_standard` with read-back), `order_editor.py::open_new_order` (swap the standard around Order creation, restore in `finally`), `resolver.py::search_grid_exact` (re-find the grid pane before widening; log the outcome), `screens.py` (`PAYMENT_STANDARD_COLUMN`, `PAYMENT_METHODS_LIST_COLUMNS`, `PAYMENT_SET_STANDARD_BUTTON_TITLE`) | 0019 (closes 0018's open item) |
+| 17 | `Data > Documents` verification (tasks 4.5/5.5) | `verification/`, `ui_automation/` | new `ui_automation/list_grids.py` (`search_grid_exact` + `_clipped_columns` moved out of `entity_resolution/resolver.py`, plus `open_list_screen`), new `verification/documents_list.py`, `locators.py::documents_grid_pane`, `screens.py` (Documents nav/pane/tree/column/state constants), `order_verification.py` + `invoice_verification.py` (`main_window`/`order_window` params, Documents block last), `state_machine.py`, both `config.py`s; `spikes/uia_probe_documents_list.py`, `probes/probe-15-documents-list.txt`, `probes/probe_documents_output/` | 0020 |
+| 18 | Items-grid geometry measured against the grid, not the pane | `ui_automation/` | `grid_geometry.py` (`_grid_bottom`; `_column_bounds`/`_header_bottom`/`_row_lines` measure against the grid's height; row lines found full-width instead of down a blank column), `screens.py` (`ITEMS_GRID_BLANK_COLUMN` deleted); `spikes/uia_probe_items_grid_geometry.py`, `probes/probe_items_grid_output/` | 0021 |
 
 Notes worth keeping in one place:
 
@@ -86,13 +91,7 @@ Notes worth keeping in one place:
 4. **The items-grid number locale is the opposite of the forms'** - see ADR
    0016's table. Only three surfaces were measured. Anything typed into a
    fourth kind of surface needs measuring, not assuming.
-5. **`Data > Documents` is unprobed** — the one screen with no VM probe at
-   all. Tasks 4.5/5.5 prescribe it as an independent second check on the
-   saved Order and Invoice; verification currently reads the open editor's
-   own fields back instead. Probe with `spikes/uia_probe_editor.py`, then add
-   a vision-grounded grid read (its rows will be UIA-invisible like every
-   other Fakturama list). See ADR 0004's Consequences.
-6. **Items-grid geometry on a narrow window — needs a VM check.**
+5. **Items-grid geometry on a narrow window — needs a VM check.**
    `add_order_line` measures the grid's own separator lines and requires all
    10 columns (`ORDER_LINE_GRID_COLUMNS`) to be visible in one capture. On a
    dev box during the 2026-09-06 session, horizontal scroll put Qty. and
@@ -100,33 +99,33 @@ Notes worth keeping in one place:
    on a fresh process never reproduced it. Fails closed either way, so not
    unsafe — but if it recurs on the real VM, the fix is scroll-and-re-measure
    rather than one capture.
-7. **Richer manual-review payloads** (deferred from Section 6, ADR 0005):
+6. **Richer manual-review payloads** (deferred from Section 6, ADR 0005):
    give `ManualReviewRequired` an optional `details` payload, thread it
    through the ~10 raise sites, and add a `Decimal`/`date`-aware JSON
    encoder so a queue entry can carry the actual `NormalizedOrder`.
    `route_to_manual_review` already forwards `details` via `getattr`, so
    this is purely additive.
-8. **Per-entry manual-review files** (one JSON per stuck order under
+7. **Per-entry manual-review files** (one JSON per stuck order under
    `out/manual_review/`) plus a human-readable log, if the single
    append-only `out/manual_review_queue.jsonl` proves insufficient once a
    human or tool actually processes entries — there's no claim/delete
    workflow today. ADR 0005's Consequences.
-9. **Country-code → name mapping** for the Debtor Country combo: if
+8. **Country-code → name mapping** for the Debtor Country combo: if
    Fakturama's options are full names ("Germany") while normalized data
    holds an ISO code ("DE"), `select_exact_option` fails closed to manual
    review rather than guessing. ADR 0006.
-10. **Localization** generally — accepting other number, date, and currency
+9. **Localization** generally — accepting other number, date, and currency
    formats. `comparisons.parse_ui_date`'s month-name forms resolve through
    `LC_TIME`, which nothing sets, so a German-locale Fakturama
    (`18. Juli 2026`) would fail closed.
-11. **Task-spec gaps** (Order Date, currency comparison, address read-back,
+10. **Task-spec gaps** (Order Date, currency comparison, address read-back,
    incomplete Debtor/VAT/Payment/Product master-data fields, the stubbed OCR
    pass) — listed and ranked in
    [README.md](README.md#next-steps). Currency is now captured end-to-end
    through extraction/normalization (`RawOrder.currency` →
-   `NormalizedOrder.currency`); items 9-11 below are what's still open for
+   `NormalizedOrder.currency`); items 11-13 below are what's still open for
    it and the other two.
-12. **Order Date is extracted and normalized but never written or verified.**
+11. **Order Date is extracted and normalized but never written or verified.**
     `orchestrator/steps/order_editor.py::populate_order_fields` writes only
     Cust. Ref. today. `comparisons.date_equals` already exists for the
     verify side (`verification/comparisons.py`) but is unused anywhere — it
@@ -137,15 +136,15 @@ Notes worth keeping in one place:
     combo two siblings later — the date field itself, if directly
     addressable, is hypothesized at one sibling closer but never probed).
     See `.claude/plans/bug-fixes-currency-connect.md`.
-13. **Currency has no UI-side verification.** Extraction/normalization
-    capture it (see item 8); `verification/comparisons.py` has no
+12. **Currency has no UI-side verification.** Extraction/normalization
+    capture it (see item 10); `verification/comparisons.py` has no
     `currency_equals`, and nothing reads a currency control off the order
     editor to compare it. Needs a live VM check first — it isn't confirmed
     Fakturama's order editor even exposes currency as a per-order control
     rather than a fixed per-installation setting; that decides whether this
     is a real check or a no-op. See
     `.claude/plans/bug-fixes-currency-connect.md`.
-14. **Addresses are normalized but never verified.** `NormalizedOrder.
+13. **Addresses are normalized but never verified.** `NormalizedOrder.
     billing_address`/`delivery_address` are fully populated; nothing in
     `order_verification.py` compares them. `screens.py`'s only address-
     adjacent selector is the `"Addresses"` label used to locate the Debtor-
@@ -153,15 +152,15 @@ Notes worth keeping in one place:
     learn whether the Order editor shows address as one free-text block or
     discrete fields before a comparator can be written. See
     `.claude/plans/bug-fixes-currency-connect.md`.
-15. **`payment_details` has no UI write or verification.** It's now carried
+14. **`payment_details` has no UI write or verification.** It's now carried
     through normalization (ADR 0011, no longer silently dropped) but
     `ui_automation/locators.py::payment_details_pane` only exposes the
     payment-method combo and date row — nothing addresses a bank-details
     field. Whether Fakturama keeps an IBAN/BIC on the Debtor record or the
     Invoice is unconfirmed. Needs a live VM probe before a write/read-back
-    path can be designed, same prerequisite as items 9-11. See
+    path can be designed, same prerequisite as items 11-13. See
     `.claude/plans/payment-details-normalization.md`.
-16. **The "Select the address" picker could match on Customer ID too.**
+15. **The "Select the address" picker could match on Customer ID too.**
     `orchestrator/steps/pickers.py` still requires exactly one filtered row
     rather than checking field equality, worked around this way because its
     grid's Company column is confirmed to render clipped (unlike the Debtors
@@ -169,7 +168,7 @@ Notes worth keeping in one place:
     reliably returns a real Customer ID, the picker could independently
     verify its single row's identity the same way, for a stronger guarantee
     than row-count alone.
-17. **Fakturama's money locale — settled, except the original symptom never
+16. **Fakturama's money locale — settled, except the original symptom never
     reproduced.** (ADR 0016.) The concatenation bug is fixed by
     `controls.replace_text`. The separator question is answered: the typed
     separator must follow the surface, and the surfaces disagree with each
@@ -184,3 +183,8 @@ Notes worth keeping in one place:
     US in the grid (`45,000.00 €`). The report is not disproven, just not
     reproducing, so nothing was done about it and
     `spikes/uia_probe_digit_shaping.py` is kept for if it returns.
+
+17. **An unpaid Invoice's `Data > Documents` state word is unknown** (ADR
+    0020). No probed workspace has ever held one, so `documents_list` asserts
+    such a row is *not* `paid` rather than comparing it against a guessed
+    constant. The exact check is one line once an unpaid Invoice is seen live.

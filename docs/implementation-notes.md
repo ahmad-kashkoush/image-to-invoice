@@ -618,3 +618,171 @@ search box rebuilds the grid's widget tree as it filters - the same thing
 as nothing, measures as no columns, and declines to widen, silently. The pane
 is now re-found before the widen, and the log says whether the widen succeeded
 rather than only that it was attempted.
+
+## `Data > Documents` — the screen that is not shaped like the other four (2026-09-15)
+
+Closing ADR 0004's last residual and `TODo.md`'s only never-probed screen.
+Decisions are in ADR 0020; what is worth keeping here is how much of the
+design the probe overturned, because the plan assumed this was a fifth
+instance of a pattern the codebase already had.
+
+It is not. `Pane 'Documents'` holds three things, not one:
+
+```
+Pane 'Documents'
+  Pane
+    Tree                      <- Invoices > unpaid/paid, Orders > not shipped/shipped
+    Pane
+      Pane                    <- title ("Orders") + the Search: box
+      Pane                    <- the grid, header included
+```
+
+Two consequences, neither guessable from the other list screens:
+
+- **The pane cannot be captured whole.** The tree would be transcribed as
+  extra columns by the vision read and counted as separators by
+  `grid_columns`. `locators.documents_grid_pane` walks down to the grid,
+  structurally, because every Pane on the way is blank-named.
+- **The tree scopes the search box.** `INV000002` typed while `Orders` is
+  selected returns nothing
+  (`probes/probe_documents_output/documents-Orders-INV000002-rows.png` is an
+  empty grid; the same key under `Invoices` returns the row). A check that
+  skipped the tree click would report a saved Invoice as missing, which is a
+  false failure indistinguishable from the real one it exists to catch.
+
+### Three things the vision read got wrong, and what each cost
+
+This is the first place in the project where a *comparison* was built
+directly on transcribed grid text rather than on a filter, and all three
+problems below showed up within one sitting. They are worth naming because
+the fix in each case was to give the model less to do, not to prompt it
+better.
+
+1. **A long run of zeros miscounts.** The first version of the `Cust.Ref.`
+   check filtered on the reference and looked for the document's number among
+   the results; against four rows the model returned `INV0000002` for
+   `INV000002` - while reading the same value correctly in a one-row capture
+   minutes earlier. Every comparison now runs against a one-row read. That
+   made it rarer and not impossible: a later run read `INV000007` as
+   `INV0000007` from a one-row capture and stopped a workflow on a document
+   that had saved perfectly. The number comparison now collapses runs of zeros
+   on both sides (`_same_document_number`), which is defensible only because
+   the number was never what that comparison rested on - the row came back
+   from Fakturama's own filter on it.
+2. **An icon in a cell is transcribed sometimes.** The same paid Invoice's
+   State cell came back `paid` on one pass and as a check-mark glyph plus
+   `paid` on the next. `_state_word` strips to letters before comparing.
+3. **The `Cust.Ref.` column is clipped** (`WEB-2026-07...`), like the Debtors
+   grid's Company column before ADR 0017 - but ADR 0017's widen does not fit
+   here: this grid measures 8 separator lines for 9 rendered columns, where
+   `widen_column` expects a pane border and a grid left edge in front of them.
+   Rather than teach a fragile pixel model a second geometry, the check asks
+   Fakturama instead: its **search box ANDs whitespace-separated terms**
+   (measured: `INV000002 WEB-2026-0714-A17` returns one row,
+   `INV000002 WEB-2026-0714-A99` returns none). One surviving row proves the
+   reference exactly, at any column width.
+
+That search-box behaviour is the most reusable thing found here. Nothing else
+in the project uses it yet, and it turns several "read the cell and compare"
+problems into "let the app filter and count".
+
+### The negative path is what found all three
+
+The end-to-end run reached `DONE` on the first attempt with every one of
+those three defects present - the happy path cannot tell a correct comparison
+from one that never really compared anything. What found them was an
+eight-case harness run directly against documents already in the workspace:
+four cases expected to pass, four expected to fail, each checked for
+*which field* it named. Two of the three defects surfaced as a
+false positive in a case that was supposed to pass cleanly.
+
+## `grid_geometry` — "0 columns" was the pane, not the grid (2026-09-15)
+
+A run stopped at `add_order_lines` with *"grid screenshot shows 0 column(s),
+expected at least 10 - the grid may be horizontally scrolled or clipped"*,
+after all three `GRID_MEASURE_ATTEMPTS`. The message named the wrong cause:
+nothing was scrolled or clipped. Decisions are in ADR 0021; what is worth
+keeping here is how the number zero identified the fault on its own.
+
+Zero is not a weaker version of "too few". A scrolled or clipped grid still
+shows *some* full-height separators - that is what the earlier "measured 8 of
+10" incidents looked like. Zero means no separator cleared
+`_FULL_HEIGHT_FRACTION`, and a threshold that rejects **all ten at once** is
+far more likely to be measuring against the wrong denominator than to be
+looking at ten independently broken lines.
+
+`spikes/uia_probe_items_grid_geometry.py` settled it by measuring through the
+same locator the failing code uses and reporting, per candidate separator,
+the first and last dark y rather than only the count:
+
+```
+items grid pane: (434,374)-(1896,502) 1462x128
+  x=   0  116  90.6%  0..120     <- the pane's own left border
+  x=  51  105  82.0%  0..105     <- every real separator, all ten of them
+  x= 616   79  61.7%  0..127
+  0.90:  1 separator(s) =  0 column(s)   <- _FULL_HEIGHT_FRACTION
+  0.80: 12 separator(s) = 11 column(s)
+```
+
+Every real separator ran 0..105 in a 128px capture: 82%. The pane returned by
+`locators.items_grid_pane` contains the widgets drawn *under* the grid too - a
+Notes box and the "Total Net" field, 23px of it. The one line that did clear
+0.9 was the pane's left border, and one separator bounds zero columns.
+Measured against the grid's own height instead, those same separators are
+99-100% and the false candidate at x=616 falls to 53% - so the fix does not
+trade strictness for tolerance, which lowering the constant to 0.8 would
+have.
+
+### The bug the first one was hiding
+
+With columns fixed, the same capture failed one step later: *"shows no row
+separators"*. `_row_lines` scanned down the column chosen for rendering blank
+(Picture), requiring a dark pixel with light pixels two rows either side. The
+row the product picker had just added came back **selected**, and the
+selection highlight (blue, greyscale 95) filled that column top to bottom:
+
+```
+y=26 192 | y=27 0 | y=28..50  95 95 95 ... 95 | y=51 0 | y=52..75 255
+```
+
+Of four row lines (26, 51, 76, 101) only y=76 survived the light-neighbour
+test, and two lines are needed to measure a pitch. Note that this defect was
+*always* present - it could not surface while the column check failed first,
+and it would have surfaced on the next clean run as a different message.
+Both faults have the same root: a measurement taken against something other
+than the grid's own extent. Row lines are now found the way the bottom edge
+is, as lines running the full width, which a highlight never does.
+
+### What the probe cost, and why it was still the short path
+
+The first run of the probe measured VS Code: it captured without calling
+`controls.focus_foreground`, and `capture_as_image` grabs a screen region.
+That is the exact hazard `controls.py` documents ("a grid capture came back
+showing a code editor"), reproduced by omission. It was not wasted - a dark
+editor over the region measures as *365* columns, the opposite signature to
+the failing run's zero, which ruled occlusion out as the live cause before
+the second run confirmed the real one.
+
+### The third measurement, and the last one
+
+Fixing the columns exposed the row lines (above); fixing the row lines
+exposed a third, in the next live run: `grid rows are not evenly pitched
+(measured [21, 25, 25, 25, 25])`. Full-width detection had picked up the
+grid's *bottom border* as a lattice line, and the border does not sit a row
+height above the last row - the pane clips the grid mid-row, so that final
+gap is however much of the row there was room for. Captured directly on an
+empty editor, where the whole grid is just the two lines:
+
+```
+full-width lines: [0, 26, 47, 48, 49]   <- header line, then the border
+```
+
+26 to 47 is the same 21. The border is now returned as a *band*
+(`_grid_bottom_band` -> first and last row of it): its last row is the grid's
+height, its first is where the lattice stops. The pitch check stays exact -
+with the border out of the set, the remaining gaps really are all equal, so
+an uneven pitch keeps meaning something is wrong.
+
+Worth noting what all three faults had in common, since it is the only
+generalisable thing here: each one measured the grid against something that
+was not the grid - the pane around it, a highlight inside it, its own border.

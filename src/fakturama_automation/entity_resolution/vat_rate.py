@@ -21,7 +21,7 @@ def resolve_vat_rate(
     main_window = app.main_window()
 
     def search_by() -> list[ResolvedEntity]:
-        _open_vats_list(main_window)
+        resolver.open_list_screen(main_window, screens.VATS_NAV_NAME)
         rows = resolver.search_grid_exact(
             main_window,
             grid_pane_name=screens.VATS_GRID_PANE_NAME,
@@ -40,11 +40,6 @@ def resolve_vat_rate(
     return resolver.resolve_exact_or_create(
         search_by, create, entity=f"VAT rate {vat_percent}%", step="resolve_vat_rate"
     )
-
-
-def _open_vats_list(main_window: Any) -> None:
-    controls.focus(main_window)
-    controls.find_control(main_window, "Text", name=screens.VATS_NAV_NAME).click_input()
 
 
 def _create_vat_rate(

@@ -28,6 +28,29 @@ def picker_grid_pane(label: Any) -> Any:
     return node.children()[1]
 
 
+def documents_grid_pane(container: Any) -> Any:
+    """The Documents grid itself, without the left document-type tree.
+
+    Every other list screen is captured by its named Pane directly. This one
+    cannot be: Pane 'Documents' also contains the Invoices/Orders tree, which
+    a vision read transcribes as extra columns and which grid_columns' pixel
+    measurement counts as separators. Structural, because every Pane on the
+    way down is blank-named (probes/probe-15-documents-list.txt):
+
+        Pane 'Documents' > Pane > [Tree, Pane > [title+search strip, GRID]]
+    """
+    node = container
+    for index in (0, 1, 1):
+        children = node.children()
+        if len(children) <= index:
+            raise ControlNotFoundError(
+                f"Documents grid Pane lookup found {len(children)} child(ren) where "
+                f"child {index} was expected - likely a stale/half-torn-down UIA tree"
+            )
+        node = children[index]
+    return node
+
+
 def sibling_after(control: Any, *, offset: int = 1) -> Any:
     siblings = control.parent().children()
     return siblings[siblings.index(control) + offset]

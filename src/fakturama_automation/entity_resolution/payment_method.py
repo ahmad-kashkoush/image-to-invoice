@@ -19,7 +19,7 @@ def resolve_payment_method(
     main_window = app.main_window()
 
     def search_by() -> list[ResolvedEntity]:
-        _open_payment_methods_list(main_window)
+        resolver.open_list_screen(main_window, screens.PAYMENT_METHODS_NAV_NAME)
         rows = resolver.search_grid_exact(
             main_window,
             grid_pane_name=screens.PAYMENT_METHODS_GRID_PANE_NAME,
@@ -38,11 +38,6 @@ def resolve_payment_method(
     return resolver.resolve_exact_or_create(
         search_by, create, entity=f"payment method '{payment_method}'", step="resolve_payment_method"
     )
-
-
-def _open_payment_methods_list(main_window: Any) -> None:
-    controls.focus(main_window)
-    controls.find_control(main_window, "Text", name=screens.PAYMENT_METHODS_NAV_NAME).click_input()
 
 
 def _create_payment_method(
@@ -140,7 +135,7 @@ def make_standard(
 def _list_payment_methods(
     main_window: Any, *, key: str, client: Any, settle_seconds: float
 ) -> list[dict[str, str]]:
-    _open_payment_methods_list(main_window)
+    resolver.open_list_screen(main_window, screens.PAYMENT_METHODS_NAV_NAME)
     return resolver.search_grid_exact(
         main_window,
         grid_pane_name=screens.PAYMENT_METHODS_GRID_PANE_NAME,
@@ -156,7 +151,7 @@ def _open_payment_method_record(
 ) -> None:
     # Same shape as orchestrator/steps/pickers.py: filter the grid to one row,
     # then double-click where the vision read says that row is.
-    _open_payment_methods_list(main_window)
+    resolver.open_list_screen(main_window, screens.PAYMENT_METHODS_NAV_NAME)
     grid_pane = controls.find_control(
         main_window, "Pane", name=screens.PAYMENT_METHODS_GRID_PANE_NAME,
         timeout_seconds=config.DIALOG_TIMEOUT_SECONDS,

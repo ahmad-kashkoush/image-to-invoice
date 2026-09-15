@@ -10,6 +10,22 @@ def window_title(window: Any) -> str:
     return window.window_text()
 
 
+# Eclipse prefixes a dirty editor's tab title with "*". After a Save that is
+# itself a failure, and the "*" must never reach a search box.
+UNSAVED_TAB_PREFIX = "*"
+
+
+def document_number(tab_title: str, *, unsaved_title: str) -> str:
+    """The document number an editor tab's title carries, or "" if it has none.
+
+    An editor's own tab title is this app's "was this saved" signal: the same
+    pane reads "New Order" empty and an order-number-shaped string once saved
+    (Doc/adr/0004), and there is no separately addressable No. field.
+    """
+    number = tab_title.lstrip(UNSAVED_TAB_PREFIX).strip()
+    return "" if not number or number == unsaved_title else number
+
+
 def field_value(control: Any) -> str:
     try:
         return str(control.get_value())

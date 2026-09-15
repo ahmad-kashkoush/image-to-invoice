@@ -132,7 +132,7 @@ def run_workflow(
 
         state = _enter(WorkflowState.SAVE_AND_VERIFY_ORDER)
         steps.save_order(app, window)
-        verify_order_saved(window, order, client=client)
+        verify_order_saved(window, order, main_window=app.main_window(), client=client)
 
         state = _enter(WorkflowState.CREATE_AND_VERIFY_INVOICE)
         invoice_window = steps.create_linked_invoice(app, window, client=client)
@@ -144,7 +144,9 @@ def run_workflow(
 
         state = _enter(WorkflowState.SAVE_AND_VERIFY_INVOICE)
         steps.save_invoice(app, invoice_window)
-        verify_invoice_saved(invoice_window, order, client=client)
+        verify_invoice_saved(
+            invoice_window, order, main_window=app.main_window(), order_window=window, client=client
+        )
 
         logger.info("%s", WorkflowState.DONE.value)
         return WorkflowState.DONE

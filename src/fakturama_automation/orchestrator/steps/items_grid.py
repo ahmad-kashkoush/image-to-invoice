@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Any
 
+from fakturama_automation.error_handling import config as error_handling_config
 from fakturama_automation.error_handling.exceptions import ManualReviewRequired
 from fakturama_automation.normalization.models import NormalizedLineItem
 from fakturama_automation.orchestrator import config
@@ -111,23 +113,43 @@ def _measure_grid(
     # measured as 8 columns of a 10-column grid. Re-reading is safe in a way
     # re-writing is not - it still raises once the attempts are spent.
     last_error: GridGeometryError | None = None
+    last_image: bytes | None = None
     for attempt in range(attempts):
         controls.focus_foreground(main_window)
         controls.move_pointer_away(main_window)
         grid_pane = locators.items_grid_pane(main_window, items_label=items_label)
+        image = vision_grounding.capture_control_image(grid_pane)
         try:
             geometry = grid_geometry.read_grid_geometry(
-                vision_grounding.capture_control_image(grid_pane),
+                image,
                 expected_columns=len(screens.ITEMS_GRID_RENDERED_COLUMNS),
             )
         except GridGeometryError as exc:
             last_error = exc
+            last_image = image
             if attempt + 1 < attempts:
                 time.sleep(settle_seconds)
             continue
         return grid_pane, geometry
     assert last_error is not None
-    raise last_error
+    # The measurement is made of pixels, so the message alone cannot be
+    # debugged - both geometry faults found live so far (ADR 0021, and the
+    # selection highlight below) needed the picture, and by the time anyone
+    # reads the queue entry the screen is long gone. Keeping the capture that
+    # failed costs one PNG per stopped run.
+    raise GridGeometryError(f"{last_error} - capture saved to {_dump_capture(last_image)}")
+
+
+def _dump_capture(image_bytes: bytes | None) -> str:
+    if image_bytes is None:
+        return "(nothing captured)"
+    path = Path(error_handling_config.OUT_DIR) / f"grid-measure-{time.strftime('%Y%m%d-%H%M%S')}.png"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(image_bytes)
+    except OSError as exc:  # a failed dump must not replace the real error
+        return f"(could not be saved: {exc})"
+    return str(path)
 
 
 def _fill_text_cell(main_window: Any, point: tuple[int, int], value: str, *, column: str = "?") -> None:

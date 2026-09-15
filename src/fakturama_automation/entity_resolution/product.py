@@ -24,7 +24,7 @@ def resolve_product(
     main_window = app.main_window()
 
     def search_by() -> list[ResolvedEntity]:
-        _open_products_list(main_window)
+        resolver.open_list_screen(main_window, screens.PRODUCTS_NAV_NAME)
         rows = resolver.search_grid_exact(
             main_window,
             grid_pane_name=screens.PRODUCTS_GRID_PANE_NAME,
@@ -45,11 +45,6 @@ def resolve_product(
     return resolver.resolve_exact_or_create(
         search_by, create, entity=f"product SKU '{sku}'", step="resolve_product"
     )
-
-
-def _open_products_list(main_window: Any) -> None:
-    controls.focus(main_window)
-    controls.find_control(main_window, "Text", name=screens.PRODUCTS_NAV_NAME).click_input()
 
 
 def _price_text(gross_price: Decimal) -> str:

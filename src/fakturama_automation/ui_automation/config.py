@@ -9,6 +9,16 @@ VISION_GROUNDING_MAX_TOKENS = int(os.environ.get("FAKTURAMA_UI_AUTOMATION_VISION
 
 READ_TIMEOUT_SECONDS = float(os.environ.get("FAKTURAMA_UI_AUTOMATION_READ_TIMEOUT_SECONDS", "5.0"))
 
+# How long a list screen takes to re-filter after its search box is typed
+# into, and how long to wait for its grid pane to appear (list_grids.py).
+LIST_GRID_SETTLE_SECONDS = float(os.environ.get("FAKTURAMA_UI_AUTOMATION_LIST_GRID_SETTLE_SECONDS", "1.0"))
+LIST_GRID_TIMEOUT_SECONDS = float(os.environ.get("FAKTURAMA_UI_AUTOMATION_LIST_GRID_TIMEOUT_SECONDS", "5.0"))
+
+# How far to drag a list grid's column separator when its cells render
+# clipped (see grid_columns.py). Wide enough for a long company name; the
+# grids this runs against have unused space to their right.
+COLUMN_WIDEN_PIXELS = int(os.environ.get("FAKTURAMA_UI_AUTOMATION_COLUMN_WIDEN_PIXELS", "150"))
+
 # The decimal separator Fakturama's *form fields* parse and render -
 # a fact about the running app, not about the documents being read, which is
 # why it lives here and not in normalization/config.py. Default "," for the

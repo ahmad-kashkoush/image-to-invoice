@@ -26,6 +26,10 @@ _HEADER_BREAK = 6
 # in means the view is scrolled and column N is not the Nth column.
 _LEFT_EDGE_TOLERANCE = 4
 
+# A row line spans the grid's full width. Not 1.0: a vertical scrollbar
+# interrupts the line's right end once the grid holds more rows than fit.
+_FULL_WIDTH_FRACTION = 0.9
+
 
 @dataclass(frozen=True)
 class GridGeometry:
@@ -57,7 +61,16 @@ def read_grid_geometry(
     width, height = image.size
     pixels = image.load()
 
-    columns = _column_bounds(pixels, width, height)
+    # Every measurement below is against the grid's own height, not the
+    # capture's: the pane this is handed contains the widgets drawn under the
+    # grid too (live 2026-09-15, a Notes box and the "Total Net" field, 23px
+    # of a 128px pane). Measured against the capture, the real separators
+    # covered 82% and every one of them fell under _FULL_HEIGHT_FRACTION at
+    # once - reported as 0 columns, i.e. as a scrolled or clipped grid.
+    border_top, border_bottom = _grid_bottom_band(pixels, width, height)
+    grid_height = border_bottom + 1
+
+    columns = _column_bounds(pixels, width, grid_height)
     if len(columns) < expected_columns:
         raise GridGeometryError(
             f"grid screenshot shows {len(columns)} column(s), expected at least {expected_columns} - "
@@ -70,10 +83,39 @@ def read_grid_geometry(
         )
     columns = columns[:expected_columns]
 
-    header_bottom = _header_bottom(pixels, width, height)
-    lines, row_height = _row_lines(pixels, columns, header_bottom, height)
+    header_bottom = _header_bottom(pixels, width, grid_height)
+    lines, row_height = _row_lines(pixels, width, header_bottom, border_top)
     data_top = _snap_to_row_lattice(header_bottom, lines[0], row_height)
     return GridGeometry(columns=columns, data_top=data_top, row_height=row_height)
+
+
+def _is_full_width_line(pixels, width: int, y: int) -> bool:
+    return sum(1 for x in range(width) if pixels[x, y] < _LINE_THRESHOLD) > width * _FULL_WIDTH_FRACTION
+
+
+def _grid_bottom_band(pixels, width: int, height: int) -> tuple[int, int]:
+    # The grid's bottom border, as (first row of it, last row of it). Below it
+    # the capture is whatever else the pane holds; scanning upwards from the
+    # capture's foot finds it whether or not anything is drawn under the grid.
+    #
+    # It is returned as a band, not a line, because it is several pixels thick
+    # (4px live) and because both edges are needed for different things: the
+    # last row is how tall the grid is, and the first is where the row lattice
+    # stops. A border counted as a lattice line measures the pitch between the
+    # last row and the border itself - which is the height of whatever part of
+    # that row the pane had room for, not a row height.
+    bottom: int | None = None
+    for y in range(height - 1, -1, -1):
+        if _is_full_width_line(pixels, width, y):
+            if bottom is None:
+                bottom = y
+        elif bottom is not None:
+            return y + 1, bottom
+    if bottom is not None:
+        return 0, bottom
+    raise GridGeometryError(
+        "grid screenshot has no full-width row line - it does not look like a grid"
+    )
 
 
 def _separator_positions(candidates: list[int]) -> list[int]:
@@ -110,18 +152,21 @@ def _header_bottom(pixels, width: int, height: int) -> int:
     )
 
 
-def _row_lines(
-    pixels, columns: list[tuple[int, int]], header_bottom: int, height: int
-) -> tuple[list[int], int]:
-    left, right = columns[3] if len(columns) > 3 else columns[-1]
-    scan_x = (left + right) // 2
-    lines = [
-        y
-        for y in range(header_bottom + 2, height - 2)
-        if pixels[scan_x, y] < _LINE_THRESHOLD
-        and pixels[scan_x, y - 2] >= _LINE_THRESHOLD
-        and pixels[scan_x, y + 2] >= _LINE_THRESHOLD
-    ]
+def _row_lines(pixels, width: int, header_bottom: int, border_top: int) -> tuple[list[int], int]:
+    # Row lines are found the way the grid's bottom edge is - as lines running
+    # the full width - rather than by scanning down one column expected to
+    # render blank. That scan read the row's own fill as the separator it was
+    # looking for: live 2026-09-15, the row the product picker had just added
+    # came back selected, and the selection highlight filled the blank column
+    # top to bottom, leaving one detectable line out of four. A highlight
+    # stops short of the full width; a separator does not.
+    lines = _separator_positions(
+        [
+            y
+            for y in range(header_bottom + 2, border_top)
+            if _is_full_width_line(pixels, width, y)
+        ]
+    )
     pitches = sorted(b - a for a, b in zip(lines, lines[1:]))
     if not pitches:
         raise GridGeometryError(

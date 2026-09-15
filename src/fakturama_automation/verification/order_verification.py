@@ -4,8 +4,8 @@ from typing import Any
 
 from fakturama_automation.error_handling.exceptions import ManualReviewRequired
 from fakturama_automation.normalization.models import NormalizedOrder
-from fakturama_automation.ui_automation import readers, screens
-from fakturama_automation.verification import comparisons
+from fakturama_automation.ui_automation import controls, readers, screens
+from fakturama_automation.verification import comparisons, documents_list
 
 _STEP = "verify_order_saved"
 # Matches state_machine.WorkflowState.VALIDATE_ORDER.value.
@@ -19,15 +19,43 @@ def verify_order_before_save(order_window: Any, normalized_order: NormalizedOrde
     return True
 
 
-def verify_order_saved(order_window: Any, normalized_order: NormalizedOrder, *, client: Any = None) -> bool:
+def verify_order_saved(
+    order_window: Any,
+    normalized_order: NormalizedOrder,
+    *,
+    main_window: Any,
+    client: Any = None,
+) -> bool:
     problems: list[str] = []
 
     title = readers.window_title(order_window)
-    if not title or title == screens.ORDER_TAB_TITLE_UNSAVED:
+    number = readers.document_number(title, unsaved_title=screens.ORDER_TAB_TITLE_UNSAVED)
+    if not number:
         problems.append(f"no order number assigned yet (editor still titled {title!r})")
+    elif title.startswith(readers.UNSAVED_TAB_PREFIX):
+        problems.append(f"order editor still has unsaved changes (titled {title!r})")
 
     problems.extend(_field_problems(order_window, normalized_order))
     problems.extend(_line_item_problems(order_window, normalized_order, client=client))
+
+    # Last, and only with a number to search for: reading Data > Documents
+    # navigates away from this editor, and Eclipse stops exposing an inactive
+    # tab's content to UIA, so every read above has to happen first. The
+    # restore is in a finally because the next state drives this editor.
+    if number:
+        try:
+            problems.extend(
+                documents_list.order_row_problems(
+                    main_window, normalized_order, number=number, client=client
+                )
+            )
+        finally:
+            controls.reactivate_editor(
+                main_window,
+                order_window,
+                probe_type="Edit",
+                probe_name=screens.ORDER_CUST_REF_EDIT_NAME,
+            )
 
     if problems:
         raise ManualReviewRequired(_STEP, "; ".join(problems))

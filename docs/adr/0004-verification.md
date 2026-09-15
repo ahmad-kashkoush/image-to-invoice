@@ -3,7 +3,7 @@
 ## Status
 
 Accepted. Decision 3 and parts of Consequences overtaken — see Amendment
-(2026-09-06).
+(2026-09-06); the Data > Documents residual is closed by `0020` (2026-09-15).
 
 > **Amendment (2026-09-06).** Decisions 1, 2, 4 and 5 still hold.
 >
@@ -20,6 +20,8 @@ Accepted. Decision 3 and parts of Consequences overtaken — see Amendment
 > - `verify_invoice_saved` was added later as its own state; see `0008`.
 > - Still open, unchanged: verification reads the open editor rather than
 >   `Data > Documents` (Task 4.5/5.5) — `TODo.md`'s Open list, item 2.
+>   (Closed 2026-09-15 by `0020`, which probed the screen and added the
+>   check *alongside* the editor read rather than in place of it.)
 
 > **Amendment (2026-09-06, later the same day).** Decisions 2 and 3 described
 > *where* the Order/Invoice selectors live as well as how they are chosen.
@@ -187,4 +189,4 @@ rollup.
   that has never been probed. This is left as a residual for whoever picks
   up the Data > Documents probe, the same way Section 4 left its
   `ComboBox.select(...)` option-string gap for a follow-up VM pass rather
-  than blocking on it.
+  than blocking on it. **Done - see [0020](0020-data-documents-verification.md).**

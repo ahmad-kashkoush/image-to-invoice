@@ -120,7 +120,6 @@ If I have 3 more hours, I'll work on the following:
 #### Bugs & flaws
 
 * **Order Date is not written or verified.** Extracted correctly, but `orchestrator/steps/order_editor.py::populate_order_fields` only writes Cust. Ref. → Write Order Date and verify it on read-back.
-* **Verification reads the open editor instead of `Data > Documents`.** → Verify saved Orders and Invoices from the Documents list.
 * **Addresses are not verified.** Cust. Ref., item lines, and totals are verified, but addresses are not → Read addresses back and compare them with the normalized record.
 
 #### Hardening

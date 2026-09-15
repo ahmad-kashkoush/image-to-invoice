@@ -23,7 +23,7 @@ def resolve_debtor(
     main_window = app.main_window()
 
     def search_by() -> list[ResolvedEntity]:
-        _open_debtors_list(main_window)
+        resolver.open_list_screen(main_window, screens.DEBTORS_NAV_NAME)
         rows = resolver.search_grid_exact(
             main_window,
             grid_pane_name=screens.DEBTORS_GRID_PANE_NAME,
@@ -56,11 +56,6 @@ def resolve_debtor(
     return resolver.resolve_exact_or_create(
         search_by, create, entity=f"debtor '{company_name}'", step="resolve_debtor"
     )
-
-
-def _open_debtors_list(main_window: Any) -> None:
-    controls.focus(main_window)
-    controls.find_control(main_window, "Text", name=screens.DEBTORS_NAV_NAME).click_input()
 
 
 def _create_debtor(
