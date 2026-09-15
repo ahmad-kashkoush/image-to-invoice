@@ -502,3 +502,52 @@ Two smaller things learned the hard way, both worth not rediscovering:
   Live that produced 51 evenly spaced "columns" and would have dragged an
   arbitrary part of the UI. `controls.focus_foreground` exists for exactly
   this and must be called before every capture, not once per screen.
+
+## The clean-profile run — the bug only an empty workspace can find (2026-09-15)
+
+The populated profile reached `DONE` first; the clean one then failed at
+`CREATE_AND_VERIFY_INVOICE` and took three hypotheses to explain. Decisions
+are in ADR 0018. What is worth keeping is the diagnostic path, because two of
+those three hypotheses were confident and wrong.
+
+The reported failure was `no Edit control named 'Cust.Ref.' within 5.0s`,
+which is not what happened: a `New Invoice` tab had opened with an empty body
+because the *part failed to construct*. The first guess was editor
+accumulation - eight editor tabs were open, `entity_resolution` closes none
+of them, and the run that worked had only two. Plausible, and wrong. The
+second was that the error surface was a modal like the Shipping one. Also
+wrong: this one is an Eclipse **Error view**, an editor tab, holding its text
+in an unnamed read-only Edit.
+
+`C:\Users\<user>\.fakturama2\Logs\Error.log` had the answer in one line:
+
+```
+Caused by: java.lang.NullPointerException: Cannot invoke
+  "Payment.getNetDays()" because "parentPayment" is null
+    at DocumentEditor.copyFromSourceDocument(DocumentEditor.java:1271)
+```
+
+The Order had no payment term, because `OPEN_ORDER` created the editor and
+only `POPULATE_ORDER_FIELDS` afterwards resolved the payment method -
+and Fakturama assigns the standard Payment at *construction* time. On a
+populated profile a Payment always exists by then, so this could never have
+been found any other way than by running against an empty workspace. That is
+the whole argument for keeping the clean-profile condition in the validation
+plan rather than treating the populated run as sufficient.
+
+The lesson for next time is smaller than the bug: **the application's own log
+is the cheapest source of truth available and should be the first thing
+read, not the fourth.** Two rounds of UI probing went into hypotheses that a
+single `tail` would have ruled out.
+
+What came out of it, beyond the fix:
+
+- `readers.app_error_text` now reads both surfaces this app uses to complain -
+  child-shell modals and the Error view - and `state_machine` appends it to
+  every failure reason, wrapped so a diagnostic failure can never mask the
+  real one. Both of the bugs it was written for had previously cost twenty
+  minutes each to identify.
+- The dependency now lives in `open_new_order`, which takes the order and
+  resolves the payment term before clicking New Order. Encoding it as state
+  ordering in `state_machine.py` would have left the next person free to
+  reorder the states without knowing why they could not.

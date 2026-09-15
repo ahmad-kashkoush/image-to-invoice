@@ -14,7 +14,31 @@ from fakturama_automation.ui_automation import controls, locators, screens, visi
 _POPULATE_STEP = "populate_order_fields"
 
 
-def open_new_order(app: Any) -> Any:
+def open_new_order(
+    app: Any,
+    order: NormalizedOrder,
+    *,
+    client: Any = None,
+    settle_seconds: float = config.SETTLE_SECONDS,
+) -> Any:
+    # The payment term is resolved *before* the editor is created, not with
+    # the rest of the fields afterwards, because Fakturama gives a new Order
+    # the standard Payment at construction time and there is no later chance
+    # to supply one. On a profile with no Payment records at all the Order is
+    # built with a null payment, and nothing complains until two states later,
+    # when creating the Invoice from that Order dies inside the app:
+    #
+    #   java.lang.NullPointerException: Cannot invoke
+    #   "com.sebulli.fakturama.model.Payment.getNetDays()" because
+    #   "parentPayment" is null
+    #     at DocumentEditor.copyFromSourceDocument(DocumentEditor.java:1271)
+    #
+    # which surfaces to us only as a missing 'Cust.Ref.' control on an editor
+    # that failed to build. Found live 2026-09-15 on the first clean-profile
+    # run; it cannot reproduce on a populated one, where a Payment already
+    # exists when the Order is opened.
+    payment_method.resolve_payment_method(app, order.payment_method, client=client, settle_seconds=settle_seconds)
+
     main_window = app.main_window()
     toolbar.click_new_order(main_window)
     return controls.find_control(
@@ -29,7 +53,8 @@ def populate_order_fields(
     app: Any, window: Any, order: NormalizedOrder, *, client: Any = None, settle_seconds: float = config.SETTLE_SECONDS
 ) -> None:
     debtor.resolve_debtor(app, order, client=client, settle_seconds=settle_seconds)
-    payment_method.resolve_payment_method(app, order.payment_method, client=client, settle_seconds=settle_seconds)
+    # The payment term is deliberately not resolved here - open_new_order does
+    # it, and must, before the editor exists.
 
     main_window = app.main_window()
     cust_ref_edit = _reactivate(main_window, window, "Edit", screens.ORDER_CUST_REF_EDIT_NAME)

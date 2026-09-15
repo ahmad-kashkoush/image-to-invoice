@@ -12,7 +12,7 @@ from fakturama_automation.extraction import extract_order
 from fakturama_automation.normalization.models import NormalizedOrder
 from fakturama_automation.normalization.normalizer import normalize_order
 from fakturama_automation.orchestrator import config, steps
-from fakturama_automation.ui_automation import screens
+from fakturama_automation.ui_automation import readers, screens
 from fakturama_automation.ui_automation.exceptions import (
     AmbiguousControlError,
     ControlNotFoundError,
@@ -76,6 +76,24 @@ _UI_DISCOVERY_ERRORS = (
 )
 
 
+def _with_modal_text(reason: str, app: Any) -> str:
+    # Every failure below this line is reported with whatever Fakturama is
+    # complaining about, because that is usually the *cause*: a modal disables
+    # the controls underneath it and an Error view means a part failed to
+    # build, so the step that happens to be running reports a missing or dead
+    # control instead of the message the app is showing. One place rather than
+    # per raise site - it applies to all of them equally.
+    if app is None:
+        return reason
+    try:
+        detail = readers.app_error_text(app.main_window())
+    except Exception:  # noqa: BLE001 - diagnostics must never replace the real failure
+        return reason
+    if not detail:
+        return reason
+    return f"{reason} [Fakturama reports: {detail}]"
+
+
 def run_workflow(
     image_path: Path,
     *,
@@ -98,7 +116,7 @@ def run_workflow(
             app.connect(screens.APP_TITLE_RE)
 
         state = _enter(WorkflowState.OPEN_ORDER)
-        window = steps.open_new_order(app)
+        window = steps.open_new_order(app, order, client=client, settle_seconds=settle_seconds)
 
         state = _enter(WorkflowState.POPULATE_ORDER_FIELDS)
         steps.populate_order_fields(app, window, order, client=client, settle_seconds=settle_seconds)
@@ -131,10 +149,14 @@ def run_workflow(
         logger.info("%s", WorkflowState.DONE.value)
         return WorkflowState.DONE
     except ManualReviewRequired as error:
-        logger.warning("stopped at %s: %s", error.step, error.reason)
-        route_to_manual_review(error, str(image_path), out_dir=out_dir)
+        reason = _with_modal_text(error.reason, app)
+        logger.warning("stopped at %s: %s", error.step, reason)
+        route_to_manual_review(
+            ManualReviewRequired(error.step, reason), str(image_path), out_dir=out_dir
+        )
         return state
     except _UI_DISCOVERY_ERRORS as error:
-        logger.warning("stopped at %s: %s", state.value, error)
-        route_to_manual_review(ManualReviewRequired(state.value, str(error)), str(image_path), out_dir=out_dir)
+        reason = _with_modal_text(str(error), app)
+        logger.warning("stopped at %s: %s", state.value, reason)
+        route_to_manual_review(ManualReviewRequired(state.value, reason), str(image_path), out_dir=out_dir)
         return state

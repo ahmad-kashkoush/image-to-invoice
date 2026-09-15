@@ -10,13 +10,13 @@ nothing else:
   [README.md](README.md#next-steps) (single source of truth; not duplicated here)
 
 **Current state:** all seven sections implemented and committed, then
-refactored (P0 pass, ADR 0009). **Verified live end to end on 2026-09-15**:
-the golden sample ran through all ten workflow states to `DONE`, Order and
-linked Invoice saved and verified, exit code 0, no manual-review entry - the
-first full run since 2026-09-06 and the first since the refactor. That run
-took every *match* path (Debtor, payment method, both Products, VAT rate);
-the create paths were each exercised during the same session but not yet all
-in one clean-profile run, which is Open item 1.
+refactored (P0 pass, ADR 0009). **Verified live end to end on 2026-09-15,
+both conditions**: a clean profile (every CREATE path - payment method,
+Debtor, VAT rate, both Products) and an immediate re-run against that end
+state (every MATCH path) each ran all ten workflow states to `DONE`, Order
+and linked Invoice saved and verified, exit code 0, no manual-review entry.
+The database afterwards holds exactly one Northstar contact and two Products
+at their correct net prices - no duplicates, no mis-parsed money.
 
 ## Done
 
@@ -37,6 +37,7 @@ in one clean-profile run, which is Open item 1.
 | 12 | Combo selection through UIA (replaces vision grounding) | `entity_resolution/` | `combos.py` (rewritten: `combo.select(text)` + read-back, no screenshot/vision/bbox), `debtor.py` + `product.py` (drop the now-unused `client` arg), `config.py` (`COMBO_POPUP_SETTLE_TIMEOUT_SECONDS` removed); `spikes/uia_probe_combo_vat_read.py`, `probes/probe-14-combo-vat-read.txt` | 0015 (supersedes 0013, amends 0006) |
 | 13 | Number input per surface + money read-back | `normalization/`, `entity_resolution/`, `orchestrator/steps/` | `parsing.py` (`format_decimal`), `ui_automation/config.py` (`DECIMAL_SEPARATOR`), `resolver.py` (`SavedField` dataclass with optional `read`, `money_matches`), `product.py` (locale-correct price + price read-back), `vat_rate.py`, `invoice_editor.py`, `items_grid.py` | 0016 |
 | 14 | Widen clipped list-grid columns before matching | `ui_automation/`, `entity_resolution/` | new `grid_columns.py` (pixel column measurement, `SIZEWE` handle probe, budgeted drag), `resolver.py::search_grid_exact` (detect clipping, widen once, re-read), `config.py` (`COLUMN_WIDEN_PIXELS`) | 0017 (completes 0014) |
+| 15 | Clean-profile ordering + app-error reporting | `orchestrator/`, `ui_automation/` | `order_editor.py::open_new_order` (resolves the payment term before the editor is created), `state_machine.py` (`_with_modal_text`), `readers.py` (`app_error_text`: child-shell modals and the Eclipse Error view); `README.md` (default-Shipping precondition) | 0018 |
 
 Notes worth keeping in one place:
 
@@ -67,31 +68,24 @@ Notes worth keeping in one place:
 
 ## Open
 
-1. **No clean-profile run yet.** 2026-09-15 reached `DONE` on a populated
-   profile (every match path). The create paths all ran at some point that
-   session - Debtor, both Products, VAT rate, payment method, and the Country
-   combo through UIA - but never all in one run from an empty workspace, and
-   the Country combo has still not run inside `_create_debtor` since ADR 0015.
-   Re-run from a fresh workspace once item 2 is settled.
-2. **A default Shipping is a profile precondition, and nothing says so.** A
-   freshly recreated workspace has no Shipping; "Create: New Order" then
-   raises a modal `Error` ("No default value found for Shippings. Please set
-   one from list!") and no Order editor opens, so `OPEN_ORDER` fails with the
-   misleading `no Pane control named 'New Order' found within 5.0s`. The
-   modal is a *child* shell, so `app.top_level_window_by_title` cannot see it
-   and nothing reports it. `entity_resolution` has no Shipping module. Either
-   document it as setup or add a resolver; at minimum, detect the modal so
-   the reason is the error text rather than a missing Pane. This is what
-   blocks item 1.
+1. **The Order's payment term is never explicitly set.** It is whatever
+   Fakturama defaults to. ADR 0018 guarantees one *exists* before the Order
+   is created - without it, creating the Invoice dies inside the app - but an
+   Order on a profile whose standard Payment differs from the order's would
+   silently carry the wrong term. The Invoice's payment *is* set and verified
+   (`apply_payment` / `verify_payment_applied`); the Order's is not.
+2. **`entity_resolution` never closes the editors it opens.** A clean-profile
+   run finishes with eight editor tabs. Suspected as the cause of the
+   `DocumentEditor` failure in ADR 0018 and cleared, but still untidy and a
+   plausible source of a future resource failure.
 3. **`controls.set_text` intermittently fails with "Edit stayed disabled".**
-   Seen 2026-09-14 and twice on 2026-09-15, both times on the Debtor form's
-   ZIP field and once on the Debtors search box, always while a stray
-   `*New Debtor` editor was open from a previous failed run. No modal was
-   present (checked live: `main enabled: True`, no child `Window`). It did
-   not recur once the app was restarted clean, so it looks like leftover
-   editor state rather than a timing problem - which means the 5s retry in
-   `set_text` cannot help and raising the timeout would be the wrong fix.
-   Reproduce deliberately before changing anything.
+   Seen 2026-09-14 and twice on 2026-09-15, on the Debtor form's ZIP field
+   and once on the Debtors search box. No modal was present (checked live).
+   It has not recurred since ADR 0017 stopped the Debtor form being opened
+   unnecessarily, so it may only ever have happened on the create path that
+   the clipped-column bug was forcing. Reproduce deliberately before changing
+   anything - raising the 5s timeout is the wrong fix if the control is
+   disabled rather than slow.
 4. **The items-grid number locale is the opposite of the forms'** - see ADR
    0016's table. Only three surfaces were measured. Anything typed into a
    fourth kind of surface needs measuring, not assuming.
