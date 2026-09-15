@@ -11,7 +11,13 @@ LLM, and drives Fakturama's UI to produce a saved Order, a linked Invoice, and t
 
 The recording below shows the complete process, from the order image to a saved and verified invoice.
 
+
+https://github.com/user-attachments/assets/35c10997-28a4-43d7-8bf5-a580b4fef9a7
+
+<details>
+  <summary>Previous Demo</summary>
 https://github.com/user-attachments/assets/2cf5215d-e279-4c58-830c-274da4966360
+</details>
 
 ## Getting Started
 
