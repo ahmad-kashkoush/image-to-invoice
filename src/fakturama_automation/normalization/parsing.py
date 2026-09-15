@@ -57,6 +57,24 @@ def normalize_decimal_separators(text: str) -> str:
     return cleaned
 
 
+def format_decimal(value: Decimal, *, decimal_separator: str) -> str:
+    # The inverse of normalize_decimal_separators, for writing a value *into*
+    # a UI field rather than reading one out of it. Fakturama parses what is
+    # typed with its own locale, so on the de-DE install this targets, typing
+    # Python's default "297.50" is read as 29750 - the "." is a thousands
+    # separator there. Live on 2026-09-15 that put 29.750,00 EUR on a product
+    # whose gross is 297.50, a 100x error.
+    #
+    # No thousands separator is emitted: grouping is never required for input,
+    # and emitting it would mean encoding a second, locale-specific rule with
+    # no way to verify it. `format(value, "f")` rather than str() so a Decimal
+    # that happens to carry an exponent is written in full.
+    text = format(value, "f")
+    if decimal_separator != ".":
+        text = text.replace(".", decimal_separator)
+    return text
+
+
 def parse_decimal(text: str) -> Decimal | None:
     if not text:
         return None

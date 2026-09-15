@@ -2,7 +2,13 @@
 
 ## Status
 
-Accepted
+Superseded by [0015](0015-combo-selection-through-uia.md). The popup
+locator here is correct - it finds the right window at the right rectangle -
+but cropping to it makes the image too small for the vision model to read at
+all (66x27px for a one-option VAT combo, which returned no options live on
+2026-09-15). The whole-window fallback it kept grounds ~130px off. The
+premise both share - that options must be clicked by coordinate - is what
+0015 replaces.
 
 ## Context
 

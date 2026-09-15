@@ -62,7 +62,7 @@ def _create_payment_method(
 
     resolver.verify_saved_fields(
         main_window,
-        [(screens.PAYMENT_NAME_EDIT_NAME, payment_method, resolver.text_matches)],
+        [resolver.SavedField(screens.PAYMENT_NAME_EDIT_NAME, payment_method, resolver.text_matches)],
         entity=f"payment method '{payment_method}'",
         step="resolve_payment_method",
         settle_seconds=settle_seconds,

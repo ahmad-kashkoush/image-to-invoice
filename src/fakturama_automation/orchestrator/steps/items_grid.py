@@ -33,6 +33,19 @@ def fill_and_verify_line(
     settle_seconds: float,
     attempts: int = config.ORDER_LINE_FILL_ATTEMPTS,
 ) -> None:
+    # Plain str(), i.e. a "." decimal separator, deliberately - and NOT
+    # normalization.parsing.format_decimal, which the Product form needs.
+    # Fakturama is not internally consistent about number locale, and the
+    # line runs between form Edits and grid cells: measured live 2026-09-15,
+    # the Product price and the Invoice payment Value both parse "." as a
+    # thousands separator ("297.50" -> 29750), while this grid does the
+    # opposite - "2,00" here becomes 200, and it renders "45,000.00". So grid
+    # cells keep str() and only form Edits use ui_config.DECIMAL_SEPARATOR.
+    #
+    # U.Price is deliberately absent from this dict: it is not typed at all -
+    # the picker fills it from the Product record, which is why a product
+    # created with a mis-parsed price surfaces here as a wrong U.Price rather
+    # than as a typing bug in this function.
     values = {
         screens.ITEMS_COL_SKU: item.sku,
         screens.ITEMS_COL_QUANTITY: str(item.quantity),

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from fakturama_automation.normalization import parsing
 from fakturama_automation.normalization.models import NormalizedOrder
 from fakturama_automation.orchestrator import config
 from fakturama_automation.orchestrator.steps import toolbar
+from fakturama_automation.ui_automation import config as ui_config
 from fakturama_automation.ui_automation import controls, locators, screens
 from fakturama_automation.verification import comparisons
 
@@ -45,7 +47,12 @@ def apply_payment(app: Any, invoice_window: Any, order: NormalizedOrder, *, clie
     value_edit = controls.find_control(
         invoice_window, "Edit", name=screens.INVOICE_PAYMENT_VALUE_EDIT_NAME
     )
-    controls.replace_text(value_edit, str(gross_total))
+    # A form Edit, so it parses like the Product form and not like the Items
+    # grid: measured live 2026-09-15, str() here put "678.30" in and got
+    # "67.830,00" back - the "." read as a thousands separator.
+    controls.replace_text(
+        value_edit, parsing.format_decimal(gross_total, decimal_separator=ui_config.DECIMAL_SEPARATOR)
+    )
 
 
 def save_invoice(app: Any, invoice_window: Any) -> None:

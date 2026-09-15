@@ -5,7 +5,9 @@ from decimal import Decimal
 from typing import Any
 
 from fakturama_automation.entity_resolution import config, matching, resolver
+from fakturama_automation.normalization import parsing
 from fakturama_automation.entity_resolution.models import ResolvedEntity
+from fakturama_automation.ui_automation import config as ui_config
 from fakturama_automation.ui_automation import controls, screens
 
 
@@ -59,7 +61,7 @@ def _create_vat_rate(
     )
 
     value_edit = controls.find_control(main_window, "Edit", name=screens.VAT_VALUE_EDIT_NAME)
-    controls.replace_text(value_edit, str(vat_percent))
+    controls.replace_text(value_edit, parsing.format_decimal(vat_percent, decimal_separator=ui_config.DECIMAL_SEPARATOR))
 
     controls.focus(main_window)
     controls.find_control(main_window, "Button", name=screens.SAVE_BUTTON_TITLE).click_input()
@@ -67,8 +69,8 @@ def _create_vat_rate(
     resolver.verify_saved_fields(
         main_window,
         [
-            (screens.VAT_NAME_EDIT_NAME, f"{vat_percent}%", resolver.text_matches),
-            (screens.VAT_VALUE_EDIT_NAME, str(vat_percent), resolver.percent_matches),
+            resolver.SavedField(screens.VAT_NAME_EDIT_NAME, f"{vat_percent}%", resolver.text_matches),
+            resolver.SavedField(screens.VAT_VALUE_EDIT_NAME, str(vat_percent), resolver.percent_matches),
         ],
         entity=f"VAT rate {vat_percent}%",
         step="resolve_vat_rate",

@@ -413,3 +413,92 @@ were reasoned about on paper and never run.
   the field's locale. It is silent because `_create_product`'s
   `verify_saved_fields` checks only the SKU; the gross price still needs to
   be in that list so a mis-parsed price fails closed.
+
+## `entity_resolution/combos.py` — selecting instead of clicking (2026-09-15)
+
+The fix for the `resolve_product` stop above. Decisions are in
+`docs/adr/0015-combo-selection-through-uia.md`; what is worth keeping here is
+how the earlier investigation went wrong, because the pattern is repeatable.
+
+ADR 0006 established a true fact — the popup a combo opens is a separate
+top-level window whose UIA subtree is empty — and drew a false conclusion
+from it: that the options therefore had to be clicked by coordinate. Reading
+and acting had been treated as one problem. They are not. The items are
+virtualized, so `descendants()` is empty while `item_count()` is 252 and
+`select("Germany")` works. ADR 0013 then spent a probe, a config tunable and
+a round of settle-timing on making the *capture* better, which could not have
+helped: the clicking was the broken half.
+
+Two things would have caught it earlier, and both were already in the repo:
+
+- `orchestrator/steps/invoice_editor.py:28` and `order_editor.py:58` were
+  already selecting combos with plain `combo.select(...)`, and had never
+  failed. ADR 0006 mentions the first one and explicitly sets it aside as not
+  part of the problem. It was the counter-example.
+- `ui_automation/grid_geometry.py` had already learned the general lesson for
+  grids — use vision to read *content*, use measured geometry to decide
+  *where to act*. Combos never got that treatment, and a vision-supplied
+  bbox stayed in the click path.
+
+Implementation notes proper:
+
+- `select()` fails loudly. pywinauto raises `IndexError("item 'X' not found
+  or can't be accessed")` and leaves the combo's value untouched (verified
+  live against `select("Nonexistentland")`). It is caught broadly rather than
+  as `IndexError`: the backend may raise something else, and every failure to
+  select means one thing to the caller.
+- The read-back check is unchanged in spirit and is still the real guarantee.
+  It is what makes it safe to land a mechanism whose only evidence is live.
+- Enumeration is gone, so `select_vat_option` can no longer *search*
+  numerically — it asks for `f"{vat_percent}%"`, the exact string
+  `vat_rate.py` writes and returns, and applies the numeric comparison when
+  verifying. The reason string can no longer list the options that were
+  available, which is a real loss for diagnosis; the list grid behind the
+  combo is the honest place to get them if that is ever needed again.
+
+## First run to `DONE` since the refactor — what the last three bugs had in common (2026-09-15)
+
+After the combo fix above, three more bugs stood between the golden sample and
+`DONE`. Decisions are in ADRs 0016 and 0017; what is worth keeping here is
+that all three were the same mistake in different clothes — **a value was
+assumed to survive a round trip through the UI, and nothing checked**.
+
+- **The Product price was written in the wrong locale and never read back.**
+  `"297.50"` into a field that groups thousands with `.` is `29750`. The
+  write bug is trivial; the reason it survived two sessions is that
+  `verify_saved_fields` checked only the SKU. Once the price was added to
+  that list the bug could not have lasted an hour. Verification is not
+  paperwork here — it is the only thing standing between a plausible wrong
+  number and a saved record.
+
+- **The Debtors grid clipped the Company column and the match compared it
+  exactly.** `'Northstar Offic...' == 'Northstar Office GmbH'` is false, so
+  every run took the create branch. This is the duplicate-Debtor bug ADR 0014
+  was written to end; 0014 fixed the *identity* and explicitly assumed this
+  grid did not clip. It does. Worse, column widths are persisted per profile,
+  so the same code matched on one workspace and duplicated on another - the
+  behaviour depended on saved UI layout, which is not a variable anyone was
+  tracking.
+
+- **Guessing the number locale was wrong twice, in opposite directions.**
+  Writing `","` everywhere turned the Items grid's Qty. `2.00` into `200`.
+  Writing `"."` everywhere turned the Invoice payment Value into
+  `67.830,00`. The app is internally inconsistent, and the line runs between
+  form Edits and grid cells rather than anywhere one would guess. Both wrong
+  guesses were caught by verification that already existed - and each cost a
+  live run to find, which is the argument for measuring a surface before
+  writing to it rather than after.
+
+Two smaller things learned the hard way, both worth not rediscovering:
+
+- `GetCursorInfo` needs `cbSize` set on **every** call. Reusing one filled
+  struct makes every call after the first return 0 and leave a stale handle,
+  which reads as "the cursor is always an arrow" - and so as "this grid has
+  no resize handle", when it has one.
+- A capture that is not mostly white is not the grid. An occluded window is
+  photographed as whatever is over it, and a view that has not finished
+  painting is flat grey; either way every pixel column passes a "is this a
+  separator" test and the measurement comes back as a separator every 30px.
+  Live that produced 51 evenly spaced "columns" and would have dragged an
+  arbitrary part of the UI. `controls.focus_foreground` exists for exactly
+  this and must be called before every capture, not once per screen.

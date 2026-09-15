@@ -10,10 +10,13 @@ nothing else:
   [README.md](README.md#next-steps) (single source of truth; not duplicated here)
 
 **Current state:** all seven sections implemented and committed, then
-refactored (P0 pass, ADR 0009). The last full live run to `DONE` was
-**2026-09-06** (`INV000001`), which predates the refactor. The first
-post-refactor live run (2026-09-15) did **not** reach `DONE` — it stopped in
-`resolve_product`, and the two regressions it found are Open items 1 and 2.
+refactored (P0 pass, ADR 0009). **Verified live end to end on 2026-09-15**:
+the golden sample ran through all ten workflow states to `DONE`, Order and
+linked Invoice saved and verified, exit code 0, no manual-review entry - the
+first full run since 2026-09-06 and the first since the refactor. That run
+took every *match* path (Debtor, payment method, both Products, VAT rate);
+the create paths were each exercised during the same session but not yet all
+in one clean-profile run, which is Open item 1.
 
 ## Done
 
@@ -31,6 +34,9 @@ post-refactor live run (2026-09-15) did **not** reach `DONE` — it stopped in
 | 8 | P0 refactor: dependency direction, one selector home, honest states | all | new `ui_automation/screens.py` + `locators.py`; `actions.py` → `orchestrator/steps/{order_editor,invoice_editor,items_grid,pickers,toolbar}.py`; `__main__.py` (exit code), `state_machine.py`, `normalization/models.py` (computed `recomputed_total`, `is_paid`), `ui_automation/{exceptions,vision_grounding,grid_geometry,controls}.py`, all three `config.py` trimmed to tunables | 0009 (amends 0004, 0007, 0008) |
 | 10 | Combo popup crop + settle timing | `entity_resolution/` | `combos.py` (locate and screenshot the popup directly instead of the whole `main_window`; capture-origin threaded into the click math), `config.py` (`COMBO_POPUP_SETTLE_TIMEOUT_SECONDS`); `spikes/uia_probe_combo_region.py`, `probes/probe-13-combo-region-settle-{country,vat}.txt` | 0013 (amends 0006) |
 | 11 | Debtor matching by Customer ID (task 2.3) | `entity_resolution/`, `ui_automation/` | `debtor.py` (five-field match, real identity read-back), `matching.py` (`exact_debtor_matches`), `screens.py` (`DEBTORS_SEARCH_COLUMNS` corrected, `DEBTOR_CUSTOMER_ID_EDIT_NAME`); `tests/entity_resolution/test_matching.py` | 0014 |
+| 12 | Combo selection through UIA (replaces vision grounding) | `entity_resolution/` | `combos.py` (rewritten: `combo.select(text)` + read-back, no screenshot/vision/bbox), `debtor.py` + `product.py` (drop the now-unused `client` arg), `config.py` (`COMBO_POPUP_SETTLE_TIMEOUT_SECONDS` removed); `spikes/uia_probe_combo_vat_read.py`, `probes/probe-14-combo-vat-read.txt` | 0015 (supersedes 0013, amends 0006) |
+| 13 | Number input per surface + money read-back | `normalization/`, `entity_resolution/`, `orchestrator/steps/` | `parsing.py` (`format_decimal`), `ui_automation/config.py` (`DECIMAL_SEPARATOR`), `resolver.py` (`SavedField` dataclass with optional `read`, `money_matches`), `product.py` (locale-correct price + price read-back), `vat_rate.py`, `invoice_editor.py`, `items_grid.py` | 0016 |
+| 14 | Widen clipped list-grid columns before matching | `ui_automation/`, `entity_resolution/` | new `grid_columns.py` (pixel column measurement, `SIZEWE` handle probe, budgeted drag), `resolver.py::search_grid_exact` (detect clipping, widen once, re-read), `config.py` (`COLUMN_WIDEN_PIXELS`) | 0017 (completes 0014) |
 
 Notes worth keeping in one place:
 
@@ -61,47 +67,34 @@ Notes worth keeping in one place:
 
 ## Open
 
-1. **Combo options cannot be grounded by vision bbox — this blocks every
-   run.** Found live 2026-09-15 on the first post-refactor run of the golden
-   sample; reproduced by `spikes/uia_probe_combo_vat_read.py`
-   (`probes/probe-14-combo-vat-read.txt`). The Product VAT combo's popup is
-   located correctly but is only **66x27 px**, and the vision read of that
-   crop returns `[]` → `no unique VAT option matching 19%; options were []`.
-   The whole-window capture ADR 0013 replaced reads the text but returns
-   `bbox=(420,410,451,20)` for an option truly at `(541,537,66,27)` — ~130px
-   off, which is the same mis-grounding behind the 2026-09-14 `Germany` →
-   `Ghana` stop. **Neither capture mode is correct.** Prefer selecting the
-   popup's items through UIA directly (it *is* a real top-level window with
-   items) over clicking a vision-supplied bbox; only if that is impossible,
-   crop with surrounding context and convert coordinates from the crop.
-   Ignore the "DPI scaling" hypothesis in the failure message: `pywinauto`
-   makes the process DPI-aware at import and `rectangle()` and
-   `capture_as_image()` were measured 1:1 (1938x1048 both).
-2. **The product gross price is written 100x too high, silently.** Live
-   2026-09-15: `replace_text` clears the field correctly, but types
-   `str(Decimal)` = `"297.50"` into a de-DE-formatted field where `.` is the
-   thousands separator, leaving `29.750,00 €`. This answers the open question
-   in item 17: the typed decimal separator **must** follow the field's
-   locale. Silent because `_create_product`'s `verify_saved_fields` checks
-   only the SKU — add the gross price to it so a mis-parse fails closed.
-3. **A default Shipping is a profile precondition, and nothing says so.** A
+1. **No clean-profile run yet.** 2026-09-15 reached `DONE` on a populated
+   profile (every match path). The create paths all ran at some point that
+   session - Debtor, both Products, VAT rate, payment method, and the Country
+   combo through UIA - but never all in one run from an empty workspace, and
+   the Country combo has still not run inside `_create_debtor` since ADR 0015.
+   Re-run from a fresh workspace once item 2 is settled.
+2. **A default Shipping is a profile precondition, and nothing says so.** A
    freshly recreated workspace has no Shipping; "Create: New Order" then
    raises a modal `Error` ("No default value found for Shippings. Please set
-   one from list!") and no Order editor opens, so `OPEN_ORDER` fails with
-   `no Pane control named 'New Order' found within 5.0s`. The modal is a
-   *child* shell, so `app.top_level_window_by_title` cannot see it and
-   nothing reports it. `entity_resolution` has no Shipping module. Either
+   one from list!") and no Order editor opens, so `OPEN_ORDER` fails with the
+   misleading `no Pane control named 'New Order' found within 5.0s`. The
+   modal is a *child* shell, so `app.top_level_window_by_title` cannot see it
+   and nothing reports it. `entity_resolution` has no Shipping module. Either
    document it as setup or add a resolver; at minimum, detect the modal so
-   the reason is the error text rather than a missing Pane.
-4. **The golden sample still has no full live run.** 2026-09-15 got as far
-   as: `EXTRACT` → `NORMALIZE` → `OPEN_ORDER` → `POPULATE_ORDER_FIELDS`
-   (Debtor created, **Country combo selected and verified**, Payment Method
-   created) → `ADD_ORDER_LINES` (VAT rate created) → stopped in
-   `resolve_product`. Everything from `VALIDATE_ORDER` onward — and the whole
-   match-path/populated-profile condition, including whether the Debtor
-   duplication of ADR 0014 is really gone — remains unverified. Re-run once
-   items 1 and 2 are fixed. `--dry-run` passes clean: every new normalization
-   check (currency, ranges, completeness, confidence) accepts the sample.
+   the reason is the error text rather than a missing Pane. This is what
+   blocks item 1.
+3. **`controls.set_text` intermittently fails with "Edit stayed disabled".**
+   Seen 2026-09-14 and twice on 2026-09-15, both times on the Debtor form's
+   ZIP field and once on the Debtors search box, always while a stray
+   `*New Debtor` editor was open from a previous failed run. No modal was
+   present (checked live: `main enabled: True`, no child `Window`). It did
+   not recur once the app was restarted clean, so it looks like leftover
+   editor state rather than a timing problem - which means the 5s retry in
+   `set_text` cannot help and raising the timeout would be the wrong fix.
+   Reproduce deliberately before changing anything.
+4. **The items-grid number locale is the opposite of the forms'** - see ADR
+   0016's table. Only three surfaces were measured. Anything typed into a
+   fourth kind of surface needs measuring, not assuming.
 5. **`Data > Documents` is unprobed** — the one screen with no VM probe at
    all. Tasks 4.5/5.5 prescribe it as an independent second check on the
    saved Order and Invoice; verification currently reads the open editor's
@@ -185,19 +178,13 @@ Notes worth keeping in one place:
     reliably returns a real Customer ID, the picker could independently
     verify its single row's identity the same way, for a stronger guarantee
     than row-count alone.
-17. **Fakturama formats money with an Arabic locale (`١٢٥`, Arabic
-    currency symbol) instead of the German/EUR the pipeline assumes.**
-    Found live 2026-09-14. Confirmed app-side, not glyph shaping: a
-    Windows "native digits" setting cannot change the currency symbol.
-    A second bug underneath it *is* fixed: the price field is pre-filled
-    with a formatted 0.00 and `controls.type_text` inserts at the caret,
-    so "297.50" became "297.500,00" = 297500.00 - a price 1000x too
-    high, silent because `_create_product` only verifies the SKU.
-    `product.py` now uses `controls.replace_text`, which fixed the
-    concatenation — but live on 2026-09-15 it still produced `29.750,00 €`
-    for a gross of `297.50`, because it types `"297.50"` and `.` is the
-    de-DE thousands separator. **That settles the decimal-separator
-    question: the typed separator must follow the field's locale.** Now
-    tracked as Open item 2. Still open here: set the VM's format locale to
-    de-DE (or run Fakturama under an explicit JVM locale). `spikes/uia_probe_digit_shaping.py`
-    dumps the VM's locale state and what the field actually holds.
+17. ~~**Fakturama formats money with an unexpected locale.**~~ **Resolved
+    2026-09-15** (ADR 0016). The concatenation bug is fixed by
+    `controls.replace_text`; the separator question is answered - the typed
+    separator must follow the surface, and the surfaces disagree with each
+    other (form Edits parse `,`, the Items grid parses `.`); and the gross
+    price is now in `_create_product`'s `verify_saved_fields`, so a
+    mis-parsed price fails closed where it happens. Saved Products now carry
+    250.00 and 40.00 net, verified in the database. Nothing here is open;
+    `spikes/uia_probe_digit_shaping.py` remains for the Arabic-digit
+    rendering if it ever recurs.

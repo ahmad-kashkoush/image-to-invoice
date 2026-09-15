@@ -13,10 +13,9 @@ one visible option, "19%". So the popup was on screen and the vision read
 still came back empty - which points at the crop, not at the click.
 
 This probe opens the VAT combo on whatever Product editor is already on
-screen, locates the popup the same way combos._locate_open_popup does, and
-then runs the *same* vision read twice: once on the popup crop (what the
-code does today) and once on the whole-window capture (what it did before
-ADR 0013). Printing both side by side is the whole point - it separates
+screen, locates the popup the way combos.py used to before it moved to
+UIA selection, and then runs the same vision read twice: once on the popup
+crop (ADR 0013) and once on the whole-window capture it replaced (ADR 0006). Printing both side by side is the whole point - it separates
 "the model cannot see a 58x22 image" from "the capture is of the wrong
 region".
 
@@ -39,7 +38,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from pywinauto import Application, Desktop
 
-from fakturama_automation.entity_resolution import combos, config
+from fakturama_automation.entity_resolution import config
 from fakturama_automation.ui_automation import screens, vision_grounding
 
 APP_TITLE_RE = r"^Fakturama - "
@@ -49,6 +48,39 @@ def to_png(image) -> bytes:
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     return buffer.getvalue()
+
+
+def locate_open_popup(before_handles, *, timeout_seconds, poll_interval=0.05, stable_reads=3):
+    """The popup-locator entity_resolution/combos.py used to carry, inlined so
+    this probe keeps working now that the production path selects through UIA
+    and no longer needs it."""
+    deadline = time.monotonic() + timeout_seconds
+    popup = None
+    while popup is None and time.monotonic() < deadline:
+        for window in Desktop(backend="uia").windows():
+            if window.handle not in before_handles:
+                popup = window
+                break
+        if popup is None:
+            time.sleep(poll_interval)
+    if popup is None:
+        return None
+    last_rect, stable = None, 0
+    while time.monotonic() < deadline:
+        try:
+            rect = popup.rectangle()
+        except Exception:  # noqa: BLE001 - a torn-down popup is "not found"
+            return None
+        current = (rect.left, rect.top, rect.right, rect.bottom)
+        if current == last_rect:
+            stable += 1
+            if stable >= stable_reads:
+                return popup
+        else:
+            stable = 0
+        last_rect = current
+        time.sleep(poll_interval)
+    return popup
 
 
 def vision(image_bytes: bytes) -> str:
@@ -65,6 +97,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--outdir", type=Path, default=Path("probes/probe_combo_vat_read_output"))
     parser.add_argument("--settle", type=float, default=config.SEARCH_SETTLE_SECONDS)
+    parser.add_argument("--popup-timeout", type=float, default=1.5)
     args = parser.parse_args()
     args.outdir.mkdir(parents=True, exist_ok=True)
 
@@ -86,7 +119,7 @@ def main() -> int:
 
     before = {w.handle for w in Desktop(backend="uia").windows()}
     combo.click_input()
-    popup = combos._locate_open_popup(before, timeout_seconds=config.COMBO_POPUP_SETTLE_TIMEOUT_SECONDS)
+    popup = locate_open_popup(before, timeout_seconds=args.popup_timeout)
 
     print()
     if popup is None:

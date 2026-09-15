@@ -5,6 +5,7 @@ SEARCH_SETTLE_SECONDS = float(os.environ.get("FAKTURAMA_ENTITY_RESOLUTION_SEARCH
 
 DIALOG_TIMEOUT_SECONDS = float(os.environ.get("FAKTURAMA_ENTITY_RESOLUTION_DIALOG_TIMEOUT_SECONDS", "5.0"))
 
-COMBO_POPUP_SETTLE_TIMEOUT_SECONDS = float(
-    os.environ.get("FAKTURAMA_ENTITY_RESOLUTION_COMBO_POPUP_SETTLE_TIMEOUT_SECONDS", "1.5")
-)
+# How far to drag a list grid's column separator when its cells render
+# clipped (see ui_automation/grid_columns.py). Wide enough for a long company
+# name; the grids this runs against have unused space to their right.
+COLUMN_WIDEN_PIXELS = int(os.environ.get("FAKTURAMA_ENTITY_RESOLUTION_COLUMN_WIDEN_PIXELS", "150"))

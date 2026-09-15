@@ -2,7 +2,12 @@
 
 ## Status
 
-Accepted
+Accepted, except for the coordinate-click mechanism, which is superseded
+by [0015](0015-combo-selection-through-uia.md). The finding that the popup
+is a separate top-level window with an empty UIA subtree still holds - the
+options cannot be *read* from the tree. What was never tested here is that
+they can still be *selected* by name: the items are virtualized and
+`combo.select(text)` resolves them through the ItemContainer pattern.
 
 ## Context
 

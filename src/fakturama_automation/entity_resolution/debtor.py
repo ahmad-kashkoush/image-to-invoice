@@ -109,20 +109,26 @@ def _create_debtor(
         if address.city:
             controls.set_text(city_edit, address.city)
     if address.country:
-        # Selected by reading the combo's real, currently-open options and
-        # clicking the matching one (combos.select_exact_option) - never a
-        # guessed option string - so a mismatch (e.g. the combo shows full
-        # country names while normalized data holds a code) fails closed
-        # to manual review instead of raising a raw pywinauto error.
+        # Selected through UIA by exact option name, then read back to confirm
+        # it took (combos.select_exact_option) - never a guessed option string
+        # - so a mismatch (e.g. the combo shows full country names while
+        # normalized data holds a code) fails closed to manual review instead
+        # of raising a raw pywinauto error.
         country_combo = controls.find_control(main_window, "ComboBox", name=screens.DEBTOR_COUNTRY_COMBO_NAME)
-        combos.select_exact_option(main_window, country_combo, address.country, client=client, step="resolve_debtor")
+        combos.select_exact_option(main_window, country_combo, address.country, step="resolve_debtor")
 
     controls.focus(main_window)
     controls.find_control(main_window, "Button", name=screens.SAVE_BUTTON_TITLE).click_input()
 
     resolver.verify_saved_fields(
         main_window,
-        [(screens.DEBTOR_COMPANY_EDIT_NAME, order.debtor_company_name, resolver.text_matches)],
+        [
+            resolver.SavedField(
+                screens.DEBTOR_COMPANY_EDIT_NAME,
+                order.debtor_company_name,
+                resolver.text_matches,
+            )
+        ],
         entity=f"debtor '{order.debtor_company_name}'",
         step="resolve_debtor",
         settle_seconds=settle_seconds,
