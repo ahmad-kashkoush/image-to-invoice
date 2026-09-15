@@ -16,7 +16,9 @@ Debtor, VAT rate, both Products) and an immediate re-run against that end
 state (every MATCH path) each ran all ten workflow states to `DONE`, Order
 and linked Invoice saved and verified, exit code 0, no manual-review entry.
 The database afterwards holds exactly one Northstar contact and two Products
-at their correct net prices - no duplicates, no mis-parsed money.
+at their correct net prices - no duplicates, no mis-parsed money. The Order's
+own payment term is also written now (ADR 0019), verified against a profile
+whose standard Payment deliberately differed from the order's.
 
 ## Done
 
@@ -38,6 +40,7 @@ at their correct net prices - no duplicates, no mis-parsed money.
 | 13 | Number input per surface + money read-back | `normalization/`, `entity_resolution/`, `orchestrator/steps/` | `parsing.py` (`format_decimal`), `ui_automation/config.py` (`DECIMAL_SEPARATOR`), `resolver.py` (`SavedField` dataclass with optional `read`, `money_matches`), `product.py` (locale-correct price + price read-back), `vat_rate.py`, `invoice_editor.py`, `items_grid.py` | 0016 |
 | 14 | Widen clipped list-grid columns before matching | `ui_automation/`, `entity_resolution/` | new `grid_columns.py` (pixel column measurement, `SIZEWE` handle probe, budgeted drag), `resolver.py::search_grid_exact` (detect clipping, widen once, re-read), `config.py` (`COLUMN_WIDEN_PIXELS`) | 0017 (completes 0014) |
 | 15 | Clean-profile ordering + app-error reporting | `orchestrator/`, `ui_automation/` | `order_editor.py::open_new_order` (resolves the payment term before the editor is created), `state_machine.py` (`_with_modal_text`), `readers.py` (`app_error_text`: child-shell modals and the Eclipse Error view); `README.md` (default-Shipping precondition) | 0018 |
+| 16 | Order payment term + stale-pane widen fix | `entity_resolution/`, `orchestrator/`, `ui_automation/` | `payment_method.py` (`standard_payment_name`, `make_standard` with read-back), `order_editor.py::open_new_order` (swap the standard around Order creation, restore in `finally`), `resolver.py::search_grid_exact` (re-find the grid pane before widening; log the outcome), `screens.py` (`PAYMENT_STANDARD_COLUMN`, `PAYMENT_METHODS_LIST_COLUMNS`, `PAYMENT_SET_STANDARD_BUTTON_TITLE`) | 0019 (closes 0018's open item) |
 
 Notes worth keeping in one place:
 
@@ -68,24 +71,18 @@ Notes worth keeping in one place:
 
 ## Open
 
-1. **The Order's payment term is never explicitly set.** It is whatever
-   Fakturama defaults to. ADR 0018 guarantees one *exists* before the Order
-   is created - without it, creating the Invoice dies inside the app - but an
-   Order on a profile whose standard Payment differs from the order's would
-   silently carry the wrong term. The Invoice's payment *is* set and verified
-   (`apply_payment` / `verify_payment_applied`); the Order's is not.
-2. **`entity_resolution` never closes the editors it opens.** A clean-profile
+1. **`entity_resolution` never closes the editors it opens.** A clean-profile
    run finishes with eight editor tabs. Suspected as the cause of the
    `DocumentEditor` failure in ADR 0018 and cleared, but still untidy and a
    plausible source of a future resource failure.
-3. **`controls.set_text` intermittently fails with "Edit stayed disabled".**
-   Seen 2026-09-14 and twice on 2026-09-15, on the Debtor form's ZIP field
-   and once on the Debtors search box. No modal was present (checked live).
-   It has not recurred since ADR 0017 stopped the Debtor form being opened
-   unnecessarily, so it may only ever have happened on the create path that
-   the clipped-column bug was forcing. Reproduce deliberately before changing
-   anything - raising the 5s timeout is the wrong fix if the control is
-   disabled rather than slow.
+2. **Swapping the standard Payment makes concurrent runs unsafe** (ADR 0019).
+   Two runs against the same profile would fight over it, and a `SIGKILL`
+   between the swap and the restore leaves the order's term as standard
+   (self-correcting on the next run, but not obvious). Nothing runs
+   concurrently today; the Order editor offers no alternative.
+3. **Reading the standard costs a grid search and a vision read on every
+   run**, even when it already matches and no swap is needed (ADR 0019).
+   Worth revisiting if per-order latency starts to matter.
 4. **The items-grid number locale is the opposite of the forms'** - see ADR
    0016's table. Only three surfaces were measured. Anything typed into a
    fourth kind of surface needs measuring, not assuming.

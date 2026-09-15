@@ -101,6 +101,8 @@ def search_grid_exact(
     time.sleep(settle_seconds)
 
     def read_rows() -> list[dict[str, str]]:
+        controls.focus_foreground(parent)
+        controls.move_pointer_away(parent)
         return vision_grounding.read_grid_rows(
             vision_grounding.capture_control_image(grid_pane), columns=columns, client=vision_client
         )
@@ -116,7 +118,14 @@ def search_grid_exact(
     # comparison fails closed, which is the pre-existing behaviour.
     clipped = _clipped_columns(rows, columns)
     if clipped:
-        logger.info("%s column(s) render clipped in this grid - widening: %s", len(clipped), clipped)
+        # Re-found, not reused: typing into the search box rebuilds the grid's
+        # widget tree as it filters (the same thing
+        # orchestrator/steps/pickers.py re-finds its dialog for), and a stale
+        # pane captures as nothing, which measures as no columns and silently
+        # declines to widen. That is what made the widen a no-op live.
+        grid_pane = controls.find_control(
+            parent, "Pane", name=grid_pane_name, timeout_seconds=timeout_seconds
+        )
         # Once, not once per clipped column: a drag here widens every column
         # at the same time, so a second drag only eats the space the far
         # columns need to stay on screen.
@@ -125,6 +134,10 @@ def search_grid_exact(
             column_index=columns.index(clipped[0]),
             by_pixels=config.COLUMN_WIDEN_PIXELS,
             expected_columns=len(columns),
+        )
+        logger.info(
+            "%s column(s) render clipped %s - widening %s",
+            len(clipped), clipped, "succeeded" if widened else "FAILED (layout not measurable)",
         )
         if widened:
             controls.focus_foreground(parent)

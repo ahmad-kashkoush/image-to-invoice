@@ -551,3 +551,70 @@ What came out of it, beyond the fix:
   resolves the payment term before clicking New Order. Encoding it as state
   ordering in `state_machine.py` would have left the next person free to
   reorder the states without knowing why they could not.
+
+## The Order's payment term — a field that is not there (2026-09-15)
+
+Closing ADR 0018's last named gap. Decisions are in ADR 0019; what is worth
+keeping here is the shape of the answer, because the question assumed a
+control that does not exist.
+
+The plan was the usual one: find the Order editor's payment field, write it in
+`populate_order_fields`, verify it in `order_verification._field_problems`.
+Probing killed that: the Order editor has **74 descendants, three combos
+(pricing mode, VAT, Shipping), no CheckBox, and nothing named pay / term /
+paid** - the same on an unsaved `New Order` and a saved `PO000003`. Fakturama
+gives Invoice-type documents a payment section and gives Orders none.
+
+Two other levers were tried and measured, not assumed:
+
+- **The Debtor's own term.** `FKT_CONTACT` has `FK_PAYMENT`, and the Debtor
+  already held `Bank Transfer`. The Order still came out `Cash On Delivery`:
+  the Order is constructed before `_attach_debtor_to_order` runs, and
+  attaching does not re-apply the contact's term.
+- **The profile standard**, which is what actually decides it - Fakturama
+  stamps the Order at construction. So the fix is to swap the standard around
+  the one instruction that matters, and put it back.
+
+The defect it fixes was silent in the worst way: a run reported `DONE` while
+writing `Cash On Delivery` onto an order that says `Bank Transfer`. The
+Invoice was right the whole time, because `apply_payment` sets it explicitly -
+which is exactly why nobody noticed the Order.
+
+Worth not rediscovering:
+
+- **"Set as standard" does nothing on an unsaved record.** Clicking it before
+  Save leaves the standard untouched and reports no error. `make_standard`
+  therefore reads the list's Standard column back and fails closed if the
+  swap did not take.
+- **Read app state from the app, not from its preference file.** The standard
+  lives in `com.sebulli.fakturama.rcp.prefs` as `standardpayment=<id>`, but
+  Eclipse writes preferences on exit, so a force-killed Fakturama leaves it
+  stale. It was read as `1` while the UI had already been told `2`.
+
+### A second bug, found by the diagnostics rather than by looking
+
+Mid-way through, a run stopped with:
+
+```
+could not write '10117' to control within 5.0s (Edit stayed disabled)
+[Fakturama reports: Duplicate Contact: There is already a contact with the
+same name and street: Marta Klein; Friedrichstrasse 88]
+```
+
+That is `TODo`'s long-standing intermittent "Edit stayed disabled", seen three
+times since 2026-09-14 and never explained. It is a **modal**: creating a
+Debtor that already exists raises "Duplicate Contact", which disables the
+form underneath, so the next field write times out against a dead control.
+It is therefore a *consequence* of the clipped-Company bug (ADR 0017) - the
+match fails, the create branch runs, and the app objects - and not a timing
+problem at all. Raising the 5s timeout, the obvious fix, would have done
+nothing. ADR 0018's error reporting found this in one line, on its first
+outing against a bug it was not written for.
+
+Fixing that run also exposed a real gap in ADR 0017's widen: `search_grid_exact`
+was handing `widen_column` a **stale grid pane**, because typing into the
+search box rebuilds the grid's widget tree as it filters - the same thing
+`orchestrator/steps/pickers.py` re-finds its dialog for. A stale pane captures
+as nothing, measures as no columns, and declines to widen, silently. The pane
+is now re-found before the widen, and the log says whether the widen succeeded
+rather than only that it was attempted.

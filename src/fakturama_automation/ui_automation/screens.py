@@ -68,6 +68,15 @@ VAT_VALUE_EDIT_NAME = "Value"
 
 PAYMENT_NEW_BUTTON_TITLE = "Create a new term of payment"
 PAYMENT_NAME_EDIT_NAME = "Name"
+# Which term a new document inherits. Fakturama assigns it at construction
+# from the profile's standard, and the Order editor offers no control to
+# change it afterwards (probed 2026-09-15: 74 descendants, three combos -
+# pricing mode, VAT, Shipping - and nothing payment-related, on both an
+# unsaved and a saved Order). Setting the standard is therefore the only
+# lever there is; see entity_resolution/payment_method.py.
+PAYMENT_STANDARD_COLUMN = "Standard"
+PAYMENT_METHODS_LIST_COLUMNS = [PAYMENT_STANDARD_COLUMN, PAYMENT_NAME_EDIT_NAME]
+PAYMENT_SET_STANDARD_BUTTON_TITLE = "Set as standard"
 
 # -- Order editor ------------------------------------------------------------
 NEW_ORDER_BUTTON_TITLE = "Create: New Order"
